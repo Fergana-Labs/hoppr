@@ -5,6 +5,7 @@ import { basename, join } from 'node:path'
 import { Cron } from 'croner'
 import { Hoppr } from '../core/hoppr.ts'
 import { embeddingsEnabled } from '../core/profiles.ts'
+import { parseSource } from '../core/source.ts'
 import { appendLine, ensureDir } from '../store/atomic.ts'
 import * as gitmod from '../store/git.ts'
 import { Layout } from '../store/layout.ts'
@@ -198,6 +199,30 @@ export async function runDaemon(opts: DaemonOptions = {}): Promise<() => Promise
       }
     })
     m.stops.push(() => inbox.close())
+
+    // A folder hoppr should react to its own folder, not merely poll it.
+    // Polling was the only mechanism, so an edit waited up to 30s to be
+    // noticed — on the one source type where the files are sitting right there
+    // and chokidar can say the moment they change.
+    const spec = parseSource(h.config.hopper.source)
+    if (spec.kind === 'dir' && spec.path && existsSync(spec.path)) {
+      const src = chokidar.watch(spec.path, {
+        ignoreInitial: true,
+        // The store lives inside the folder it indexes for a `--here` hoppr;
+        // watching our own writes would loop forever.
+        ignored: (p: string) => p.includes('/.hoppr/') || p.includes('/.git/'),
+        awaitWriteFinish: { stabilityThreshold: 600, pollInterval: 150 },
+      })
+      const onChange = (path: string) => {
+        log(`[${name}] source changed: ${basename(path)}`)
+        void h
+          .sync({})
+          .then(() => nudge('source-change'))
+          .catch(() => {})
+      }
+      src.on('add', onChange).on('change', onChange).on('unlink', onChange)
+      m.stops.push(() => src.close())
+    }
 
     // Editing a prompt or a table definition re-stales what it produced.
     const defs = chokidar.watch([h.layout.prompts, h.layout.tables], { ignoreInitial: true })

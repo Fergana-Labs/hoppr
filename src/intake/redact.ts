@@ -1,3 +1,5 @@
+import { redactHighEntropy } from './entropy.ts'
+
 export interface RedactionRule {
   name: string
   re: RegExp
@@ -61,7 +63,16 @@ export interface RedactResult {
 
 export function redact(
   input: string,
-  opts: { enabled?: boolean; extraPatterns?: string[] } = {},
+  opts: {
+    enabled?: boolean
+    extraPatterns?: string[]
+    /**
+     * The net under the patterns: catch secret-SHAPED tokens from vendors
+     * nobody has written a pattern for. On by default; the patterns still run
+     * first so a known key keeps its vendor label.
+     */
+    entropy?: boolean
+  } = {},
 ): RedactResult {
   if (opts.enabled === false || !input) return { text: input, hits: {}, redacted: false }
 
@@ -86,6 +97,17 @@ export function redact(
       return `«redacted:${rule.name}»`
     })
   }
+  // AFTER the patterns, so a known key is labelled by vendor rather than by
+  // shape — "«redacted:anthropic-key»" tells you what to rotate, and
+  // "«redacted:high-entropy»" only tells you something was there.
+  if (opts.entropy !== false) {
+    const e = redactHighEntropy(text)
+    if (e.hits > 0) {
+      text = e.text
+      hits['high-entropy'] = (hits['high-entropy'] ?? 0) + e.hits
+    }
+  }
+
   return { text, hits, redacted: Object.keys(hits).length > 0 }
 }
 

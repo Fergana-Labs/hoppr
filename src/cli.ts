@@ -1634,6 +1634,20 @@ program
       ? push('ok', 'CLAUDE.md present (store is self-describing)')
       : push('warn', 'CLAUDE.md missing — run `hoppr schema sync`')
 
+    // A misspelt preset falls back rather than refusing to open the store —
+    // a typo must not lock you out of your own notes. But silence is the wrong
+    // amount of feedback, because the fallback behaves plausibly and you would
+    // never find out.
+    const { PRESET_NAMES } = await import('./core/profiles.ts')
+    const chosen = h.config.hopper.curation
+    if (chosen && !PRESET_NAMES.includes(chosen)) {
+      push(
+        'warn',
+        `[hopper] curation = "${chosen}" is not a known preset — using the default. ` +
+          `Try one of: ${PRESET_NAMES.join(', ')}`,
+      )
+    }
+
     // A secrets file readable by anyone on the machine defeats the point of
     // keeping keys out of the tracked config.
     for (const dir of [Layout.home(), h.layout.root]) {

@@ -128,6 +128,17 @@ Sixteen patterns:
 | `url-credentials` | `postgres://user:pass@host` |
 | `assigned-secret` | an assignment whose NAME says secret and whose value looks like one |
 
+Plus an **entropy net underneath**, for vendors nobody has written a pattern for. It looks
+for what a secret IS — a long run of characters carrying far more information per
+character than language does — rather than which company issued it.
+
+The interesting half is what it must NOT flag. Git SHAs, UUIDs, content hashes and
+tool-call ids are all high-entropy by construction and all meant to be read; redacting
+them would corrupt the text while protecting nothing. Tuned against 10.7M characters of
+real Claude Code logs, where `srvtoolu_…` ids were the single largest source of false
+positives. Current rate: roughly one flag per 100k characters. `[intake]
+redact_entropy = false` turns it off.
+
 Three deliberate choices:
 
 - **Vendor patterns run before the broad ones.** Every `sk-…` key also matches the generic

@@ -95,6 +95,8 @@ export const ConfigSchema = z.object({
       /** Scrub credentials at the extraction boundary. On by default: hoppr
        *  reads agent logs, and those contain pasted keys. */
       redact: z.boolean().default(true),
+      /** The entropy net beneath the vendor patterns. */
+      redact_entropy: z.boolean().default(true),
       redact_patterns: z.array(z.string()).default([]),
       debounce_ms: z.number().int().positive().default(20_000),
       max_wait_ms: z.number().int().positive().default(120_000),

@@ -576,7 +576,7 @@ Things that look like details and are load-bearing:
 
 ```bash
 npm install
-npm run check      # typecheck + lint + 280 tests
+npm run check      # typecheck + lint + 287 tests
 npm run e2e        # build, then 38 end-to-end checks against the built artifact
 node src/cli.ts    # runs from source, no build step (Node strips the types)
 ```
