@@ -1,22 +1,19 @@
 # Future: external sources
 
-**Not built, deliberately.** hoppr's core is one thing: *point it at a folder, get a
-sleep-time index over it.* Everything below reaches outside that folder — the network, a
-platform account, another app's database — and each one carries its own auth, rate limits,
-ToS and breakage. Shipping them alongside the core made the core harder to explain and
-harder to trust.
+The sources in this document are not part of core hoppr. They require network access,
+platform authentication, or access to another application's database, along with the
+associated rate limits and maintenance.
 
-This file is the design record so none of it has to be re-derived. Some of it was built,
-measured, and then removed; the measurements are kept because they are the expensive part.
+This document preserves the design work and measurements for implementations that were
+tested and later removed.
 
 ---
 
 ## The shape they all share
 
-Every source here reduces to: **read something → produce `IngestCandidate[]`**. The parts
-that are actually hard — redaction, dedup, staleness hashing, embeddings, the search
-index, incremental cursors, terminal-per-row failure — already exist and are shared. A new
-source is a parser, not a subsystem.
+Every source has the same output: **read input → produce `IngestCandidate[]`**. Existing
+code handles redaction, deduplication, staleness, embeddings, indexing, cursors, and
+per-record failures. A new source therefore only needs an adapter for its input format.
 
 There are two existing plugin points and a third that should exist:
 
@@ -26,16 +23,16 @@ There are two existing plugin points and a third that should exist:
 | `UrlHandler` | "here is one link, turn it into text" (stateless) | ❌ removed — design below |
 | `Importer` | "here is one export file, produce many captures" | ❌ never formalised |
 
-The third is the one to build first, because it is the mechanism for Twitter, Instagram
-and WhatsApp — the three sources where scraping is the wrong answer.
+An `Importer` should come first because it supports platform export files without
+requiring scraping or account access.
 
 ---
 
 ## Removed, with working code kept
 
-These were built and verified against live services before being pulled out. The source is
-in [`future-src/`](future-src/) — not compiled, not tested, but working when it was
-removed. Restore from there rather than rewriting.
+These implementations were verified against live services before removal. Their source
+is in [`future-src/`](future-src/). It is not compiled or included in the current test
+suite.
 
 ### `UrlHandler` — the interface
 
@@ -55,15 +52,13 @@ interface UrlHandler {
 }
 ```
 
-`follow` is what makes **multi-hop** fall out rather than needing its own machinery: an
-arXiv abstract page returns the PDF URL, the PDF handler extracts the full text, and the
-two stay separately searchable with separate provenance. Cap it at one hop — following a
-followed link is how a crawler happens.
+`follow` supports one level of related capture. For example, an arXiv abstract can return
+its PDF URL, allowing metadata and full text to remain separate records with separate
+provenance. Limiting traversal to one hop prevents the feature from becoming a crawler.
 
-**Ordering rule, learned the hard way:** a specific handler must claim its domain
-*narrowly*. `arxiv` originally matched every `arxiv.org` URL, so it answered its own
-follow-up hop with the same abstract — capturing metadata twice and never fetching the
-paper. `generic` matches everything and must be last.
+Handlers must match narrowly and run from most specific to most general. An earlier
+`arxiv` matcher claimed every `arxiv.org` URL, including PDF follow-ups, and captured the
+abstract twice. The `generic` handler matches any URL and must run last.
 
 ### arXiv · verified working
 
@@ -76,12 +71,12 @@ second record.
 
 ### YouTube · verified working, via `yt-dlp`
 
-- **Do not scrape `timedtext` directly.** The caption `baseUrl` is still in the page and
+- Do not request `timedtext` directly. The caption `baseUrl` is still in the page and
   still extractable, but the endpoint answers server-side requests with **200 and an empty
   body** in every subtitle format (`json3`, `srv3`, `vtt`, none). Verified, not assumed.
 - Shell out to `yt-dlp` instead. Keeping up with YouTube's countermeasures is that
   project's entire job.
-- **Judge it by its output files, not its exit code.** It exits nonzero for a version nag
+- Check its output files as well as its exit code. It can exit nonzero for a version notice
   or one unavailable subtitle language while having written the captions perfectly.
 - Auto-captions are a rolling two-line window, so consecutive duplicate lines must be
   dropped or the transcript comes back at roughly twice its true length.
@@ -94,8 +89,8 @@ that remain in core.
 
 ### Generic web page · verified working
 
-Strip `nav/header/footer/aside/form/svg` *before* stripping tags, or every capture is a
-navigation menu. Keep `og:title`, `description`, `author`, `article:published_time`.
+Remove `nav/header/footer/aside/form/svg` before stripping tags to avoid indexing page
+chrome. Preserve `og:title`, `description`, `author`, and `article:published_time`.
 Measured: Wikipedia 40,192 chars; Hacker News 3,728.
 
 ### Browser bookmarks · verified working
@@ -104,8 +99,7 @@ Netscape bookmark HTML — the 1994 format Chrome, Firefox, Safari and Edge all 
 
 - Nesting comes from `<DL>`/`</DL>` around `<H3>`, not from valid XML. One regex pass over
   `<h3>` / `</dl>` / `<a>` in document order, with a folder stack.
-- **The folder path is the payload.** It is a taxonomy a human already built by hand and
-  it makes better tags than anything inferred.
+- Preserve the folder path as user-authored taxonomy and use it as tag input.
 - `ADD_DATE` is seconds; a few browsers write milliseconds. Detect by magnitude.
 - Skip non-`http(s)` entries — `javascript:` bookmarklets are common.
 
@@ -113,7 +107,7 @@ Netscape bookmark HTML — the 1994 format Chrome, Firefox, Safari and Edge all 
 
 ## Never built
 
-### iMessage — easiest of these
+### iMessage
 
 `~/Library/Messages/chat.db`, opened **read-only** (`?mode=ro`). It is already SQLite, so
 this is the same shape as the existing `opencode` connector: probe `sqlite_master` first
@@ -125,7 +119,7 @@ Bodies live in `message.attributedBody` (a serialised `NSAttributedString`) on n
 macOS, not always in `message.text` — a naive reader silently returns empty strings for
 recent messages.
 
-### Screenshots — **already works, no plugin needed**
+### Screenshots
 
 `hoppr init` in `~/Desktop` or `~/Screenshots`. The OCR path in core reads them today.
 
@@ -143,7 +137,7 @@ for speech. Both are external binaries hoppr shells out to, the same arrangement
 works for `yt-dlp`. Keyframe interval matters: one frame per scene change, not per second,
 or a 40-minute screen recording produces thousands of near-identical OCR jobs.
 
-### Twitter/X, Instagram, WhatsApp — **importers, not scrapers**
+### Twitter/X, Instagram, and WhatsApp
 
 | | why scraping is the wrong answer |
 |---|---|
@@ -151,9 +145,8 @@ or a 40-minute screen recording produces thousands of near-identical OCR jobs.
 | **Instagram** | same, plus aggressive bot detection on reels |
 | **WhatsApp** | end-to-end encrypted. The local store is encrypted at rest, and Beeper is a bridge, not a database you can read |
 
-The export file is the right input in all three cases, and not as a workaround: it is
-**more complete** than scraping, does not rate-limit, does not break when the site ships a
-redesign, and does not put the account at risk.
+Use platform export files for all three. Exports avoid authenticated scraping, rate
+limits, and dependency on page structure while providing a complete account snapshot.
 
 - **Twitter/X**: Settings → Download an archive → `data/bookmarks.js`, `data/tweets.js`
   (JS files with a `window.YTD.*.part0 = ` prefix to strip before `JSON.parse`).
@@ -168,10 +161,9 @@ than three CLI edits.
 
 ## Order I would build them in
 
-1. **`Importer` interface** — unblocks the three export-file sources and retires the
-   one-off command shape.
-2. **iMessage** — highest value per line; it is already SQLite.
-3. **Twitter/X archive** — the export is sitting on disk and never changes.
-4. **`UrlHandler` + arXiv/generic** — restore from `future-src/`; the code worked.
-5. **YouTube** — restore; depends on `yt-dlp` being present.
-6. **Local video**, then **iCloud Photos** — most moving parts, least certain payoff.
+1. `Importer` interface, to support the three export-file sources.
+2. iMessage, which already uses SQLite.
+3. Twitter/X archives, which are static local input.
+4. `UrlHandler` with arXiv and generic handlers, restored from `future-src/`.
+5. YouTube, with `yt-dlp` as an external dependency.
+6. Local video, then iCloud Photos, which require the most platform-specific work.

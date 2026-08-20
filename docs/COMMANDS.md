@@ -1,6 +1,6 @@
 # hoppr — command reference
 
-Every command takes two global flags:
+Every command accepts these global flags:
 
 | flag | meaning |
 |---|---|
@@ -31,9 +31,8 @@ hoppr new <name> --from <source> [--here] [--curation <preset>]
 | `--exclude <glob...>` | skip these paths (`.hopprignore` is the fuller mechanism) |
 | `-y, --yes` | index and curate immediately, without asking |
 
-`hoppr new` offers to index and curate on the spot, so the store is searchable before you
-have had to discover `sync` and `curate`. It defaults to **no** on anything that is not a
-terminal, so a scripted install cannot silently start spending.
+`hoppr new` can index and curate immediately. In a non-interactive terminal, the prompt
+defaults to no so scripts do not start model work unexpectedly.
 
 ```bash
 hoppr hoppers            # every hoppr, wherever it lives
@@ -43,9 +42,9 @@ hoppr setup              # find your agent logs, offer a hoppr for each
 hoppr curation           # what each preset builds
 ```
 
-`hoppr setup` detects Claude Code, Codex, opencode and openclaw, reports how many sessions
-each holds, and offers a hoppr per harness. It states the cost before asking and is
-idempotent. `--skip-agents` does only the embedding-model download.
+`hoppr setup` detects Claude Code, Codex, opencode, and openclaw, reports the available
+session counts, and offers to create one hoppr per harness. It is idempotent.
+`--skip-agents` only downloads the embedding model.
 
 ## Putting things in
 
@@ -134,8 +133,7 @@ hoppr skills resolver              # regenerate the dispatcher table
 hoppr skills mine                  # mine now without a full deep pass
 ```
 
-Skills are **proposed, never auto-installed** — an installed skill changes every future
-agent session, so it gets a human gate.
+Skills must be accepted and installed explicitly.
 
 ## Tables
 
@@ -163,8 +161,8 @@ hoppr graph show <name>         # one entity and everything one step from it
 hoppr graph build [-n]          # extract now, without a full deep pass
 ```
 
-Every edge quotes the sentence it was read from, which is what makes the graph auditable.
-Off-schema types and relations are dropped in code, not asked for politely in the prompt.
+Every edge stores its source sentence. Types and relations outside the configured schema
+are discarded.
 
 ## Serving it to agents
 
@@ -183,9 +181,9 @@ hoppr vfs 'find . -name "*.md" | head'   # the read-only shell agents get
 hoppr daemon start | stop | status | logs
 ```
 
-One process manages **every** hoppr. It picks up new ones and releases deleted ones within
-60s. Nothing requires it: the CLI and MCP server open SQLite directly, so a dead daemon
-pauses curation, never capture or search.
+One process manages all registered hoppers. It detects new and deleted stores within 60
+seconds. The CLI and MCP server open SQLite directly, so capture and search do not depend
+on the daemon.
 
 ## Dashboard and TUI
 
@@ -208,8 +206,8 @@ hoppr schema sync       # regenerate CLAUDE.md so the store describes itself
 hoppr connectors list
 ```
 
-`reindex --full` carries the embedding cache across, so a rebuild costs nothing.
-`--forget-embeddings` is the actual nuclear option.
+`reindex --full` preserves the embedding cache. Add `--forget-embeddings` to discard it
+and recompute vectors.
 
 ---
 
@@ -263,16 +261,15 @@ method = "rrf"             # rrf | weighted | none
 k = 60                     # rrf damping; larger = flatter
 ```
 
-Off means the work **never happens**: a folder of screenshots syncs in 0.08s with `ocr`
-off and 6.7s with it on. `rrf` needs no calibration between bm25's unbounded negatives and
-cosine's 0..2, which is why it is the default; `weighted` normalises per query and is less
-stable; `none` takes one arm as-is, which is useful for debugging a ranking complaint.
+Disabled extraction steps are skipped during sync. `rrf` is the default because it does
+not require score calibration between BM25 and cosine distance. `weighted` normalizes
+scores per query; `none` uses a single result arm and is useful for ranking diagnostics.
 
 ### Schemas in their own files
 
-`.hoppr/schemas/graph.toml`, `wiki.toml`, `skills.toml` each merge into the matching config
-section and win over it. Split one out when it grows — a graph vocabulary with a sentence
-of guidance per type buries the settings you actually tweak.
+`.hoppr/schemas/graph.toml`, `wiki.toml`, and `skills.toml` merge into their matching
+configuration sections and take precedence over them. Separate files keep larger schemas
+out of the main store configuration.
 
 **Sections inside a schema file are relative:** write `[[outline]]`, not
 `[[wiki.outline]]`. The latter nests a level too deep and is silently ignored.
@@ -286,9 +283,8 @@ targets = ["cutting a release", "debugging a flaky test suite"]
 seed = ["comms-preferences", "working-agreements"]
 ```
 
-`seed` skills ship with hoppr and are written into every new store. Mining finds what you
-do *often*; it cannot find what you never wrote down, and in a store's first week it has
-nothing to cluster. Edit one and it pins.
+`seed` skills ship with hoppr and are written into every new store. Mined skills require
+enough related transcripts to form a cluster. Editing a generated skill pins it.
 
 ### Advanced
 
@@ -296,8 +292,9 @@ Rarely worth changing, but they exist:
 
 ```toml
 [index]
+driver = "auto"            # auto | better-sqlite3 | node-sqlite
 chunk_chars = 3200         # embedding chunk size
-chunk_overlap = 200        # …and how much consecutive chunks share
+chunk_overlap = 200        # overlap between consecutive chunks
 
 [intake]
 redact_patterns = []       # extra regexes, on top of the 16 built in

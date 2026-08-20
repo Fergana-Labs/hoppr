@@ -1,8 +1,8 @@
 # Extraction tables
 
-A table turns unstructured captures into rows you can query with SQL. You write
-the schema; the curator fills it, and every cell traces back to the capture it
-came from.
+A table extracts structured rows from matching captures. Define the schema, run
+curation, and query the result with SQL. Each generated cell retains its source
+reference.
 
 ```bash
 hoppr tables new meetings           # a starter you then edit
@@ -17,10 +17,9 @@ hoppr sql "select outcome, count(*) n from v_meetings group by outcome"
 
 ## Editing rows by hand
 
-Rows are exported to `.hoppr/curated/tables/<name>.jsonl`, and **that file is
-authoritative**. Edit a cell, add a line, delete a line — the next pass adopts
-your version and **pins** the row, so extraction maintains everything around it
-and never overwrites what you wrote. A row you delete stays deleted.
+Rows are exported to `.hoppr/curated/tables/<name>.jsonl`, which is the authoritative
+copy. Editing, adding, or deleting a row is picked up by the next pass. Edited rows are
+pinned and are not overwritten by later extraction.
 
 ```jsonl
 {"row_id":"2488588b","raw_id":"01M0GE…","date":"2026-03-11","outcome":"solved"}
@@ -31,5 +30,5 @@ A hand-written row needs no `row_id`; one is derived from its contents.
 
 ## Changing the schema
 
-Changing a column marks affected rows stale and the next pass backfills **just
-that column** — adding a field does not re-extract what you already have.
+Changing a column marks affected rows stale. The next pass backfills that column without
+re-extracting unchanged fields.

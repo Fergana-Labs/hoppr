@@ -1,154 +1,118 @@
-# What hoppr can read
+# Supported inputs
 
-Two ways in: a **folder source** (`--from dir:`) picks up files by extension, and
-**anything** can be thrown in by hand with `hoppr add`.
+A folder source (`--from dir:<path>`) discovers supported files by extension. `hoppr add`
+can also capture text, a supported file, or a URL record directly.
 
-## Folder sources — indexed by extension
+## Folder sources
 
-| type | extensions | how the text is extracted | cost |
+| type | extensions | extraction | cost |
 |---|---|---|---|
-| **Markdown & prose** | `.md` `.markdown` `.mdx` `.txt` `.rst` `.org` | read directly | free |
-| **HTML** | `.html` `.htm` | tags stripped, scripts and styles dropped | free |
-| **Structured data** | `.json` `.jsonl` `.yaml` `.yml` `.toml` `.csv` `.tsv` | read directly | free |
-| **PDF** | `.pdf` | text layer via `unpdf`, de-hyphenated and re-wrapped | free |
-| **Word** | `.docx` | `mammoth`, falling back to a built-in reader — tables keep their rows, footnote bodies come through | free |
-| **Excel** | `.xlsx` | built-in reader; shared strings resolved, date serials formatted, one block per sheet | free |
-| **PowerPoint** | `.pptx` | built-in reader; one block per slide, numbered | free |
-| **Images** | `.png` `.jpg` `.jpeg` `.gif` `.webp` | **local OCR** for text, then a vision model for the description *if one is configured* | OCR free; description optional |
-| **Scanned PDF** | `.pdf` with no text layer | pages rasterised and OCR'd (first 5) | free |
-| **Legacy Office** | `.doc` `.xls` `.ppt` | *not extractable* — recognised so the reason is visible | free |
+| Markdown and prose | `.md` `.markdown` `.mdx` `.txt` `.rst` `.org` | read directly | none |
+| HTML | `.html` `.htm` | remove scripts, styles, and tags | none |
+| Structured data | `.json` `.jsonl` `.yaml` `.yml` `.toml` `.csv` `.tsv` | read directly | none |
+| PDF | `.pdf` | extract and normalize the text layer with `unpdf` | none |
+| Word | `.docx` | use `mammoth`, with a built-in reader as fallback | none |
+| Excel | `.xlsx` | built-in XML reader; preserve sheets, strings, and dates | none |
+| PowerPoint | `.pptx` | built-in XML reader; emit one numbered block per slide | none |
+| Images | `.png` `.jpg` `.jpeg` `.gif` `.webp` | local OCR, plus an optional vision description | OCR is local; description may use a model |
+| Scanned PDF | `.pdf` without a text layer | rasterize and OCR the first five pages | none |
+| Legacy Office | `.doc` `.xls` `.ppt` | index the name and report that text was not extracted | none |
 
-### Notes on the harder ones
+### Extraction details
 
-**Office formats are ZIPs of XML**, unzipped with Node's own `zlib` — no native build.
+Modern Office files are ZIP archives containing XML. The built-in readers use Node's
+`zlib`, so Excel and PowerPoint extraction do not require a format-specific dependency.
 
-**Images: local OCR first, model second.** Measured on a 720×220 screenshot of an error
-message, tesseract took **765ms and cost nothing**, and its text was as usable as the
-vision model's. Paying per image to read text a WASM binary reads for free turns "index my
-Downloads folder" into a bill — so OCR always runs, and a model is asked only for what OCR
-cannot give: what the image *shows*. With no model configured at all, images are still
-fully searchable by their text.
+For images, local OCR extracts searchable text. If a vision model is configured, hoppr
+also asks it for a description of the image. OCR still works when no model is available.
 
-**Scanned PDFs go through the same path.** No text layer means a scan — text to a human,
-opaque to every extractor. hoppr rasterises the pages and OCRs them, capped at the first
-five, because the goal is to make the document findable rather than to transcribe it
-completely. If OCR also finds nothing, the file is indexed by name and the reason is
-recorded.
+A PDF without a text layer is treated as a scan. hoppr rasterizes and OCRs up to five
+pages, enough to make most scans discoverable without processing the entire document. If
+no text is found, hoppr indexes the file name and records the extraction failure.
 
-**Word uses `mammoth` when it is installed.** The formats are genuinely complex and the
-dependency-free reader loses real content: measured on a fixture with both, it flattened
-table rows into one value per line and dropped footnote bodies entirely (they live in a
-different XML part). `mammoth` is 2.1MB and optional; without it the built-in reader still
-gets the prose.
-
-**Excel and PowerPoint stay dependency-free.** SheetJS's npm package is stale and `exceljs`
-is 22MB — for the "make it searchable" job, neither earns its weight over reading the XML
-directly. The gaps that mattered are fixed instead: shared strings resolve, and date cells
-format as dates rather than indexing as `45678` (Excel stores a date as a number and
-records date-ness only in the cell's style).
-
-**Legacy Office is binary OLE**, not ZIP+XML. Re-save as `.docx`/`.xlsx`/`.pptx` to index
-the text.
+For Word documents, `mammoth` preserves structures such as tables and footnotes. Without
+it, the built-in reader still extracts ordinary prose. Legacy Office files use the older
+binary OLE format and must be re-saved as `.docx`, `.xlsx`, or `.pptx` for text extraction.
 
 ### Optional dependencies
 
-| package | size | gives you | without it |
-|---|---|---|---|
-| `unpdf` | — | PDF text layers | PDFs indexed by name |
-| `tesseract.js` | 1.4MB + ~13MB language data on first use | OCR for images and scans | falls back to the vision model, then to name-only |
-| `@napi-rs/canvas` | native, prebuilt | rasterising PDF pages for OCR | scanned PDFs indexed by name |
-| `mammoth` | 2.1MB | docx tables and footnotes | built-in reader, prose only |
-| `@huggingface/transformers` | ~210MB | local embeddings | keyword search only |
+| package | capability | fallback when absent |
+|---|---|---|
+| `unpdf` | PDF text layers | index PDF by name |
+| `tesseract.js` | OCR for images and scans | use the vision model, then name-only indexing |
+| `@napi-rs/canvas` | PDF page rasterization | index scanned PDFs by name |
+| `mammoth` | Word tables and footnotes | use the built-in prose reader |
+| `@huggingface/transformers` | local embeddings | use keyword search |
 
-### Everything degrades, nothing throws
+Extraction errors are isolated to the affected file. Corrupt, encrypted, mislabeled, or
+unreadable files are indexed by name and path with the reason recorded.
 
-A corrupt PDF, a password-protected spreadsheet, a binary with a `.txt` extension, a file
-you lack permission to read — each falls back to *indexed by name and path*, with the
-reason recorded. A folder you point hoppr at will contain at least one of these, and it
-must not cost you the other 900 files.
+### Default exclusions
 
-### Skipped by default
+hoppr skips these names by default:
 
-`node_modules` `.git` `.venv` `venv` `dist` `build` `target` `__pycache__` `.next`
-`coverage` `*.lock` `package-lock.json`, plus `.hoppr/` itself and every dotfile. Files
-over `[hopper] max_file_mb` (default 20) and empty files are skipped.
+```text
+node_modules  .git  .venv  venv  dist  build  target  __pycache__  .next
+coverage  *.lock  package-lock.json
+```
 
-Source files (`.ts`, `.py`, …) are **deliberately not indexed**. hoppr is not an AST tool;
-for code structure use something that parses it properly. A folder hoppr is for prose,
-where summarising and tagging is the whole job.
+It also skips `.hoppr/`, dotfiles, empty files, and files larger than `[hopper]
+max_file_mb` (20 MB by default).
 
-## Agent sources — transcripts
+Source code files such as `.ts` and `.py` are not indexed. hoppr extracts and curates
+prose; it does not parse code structure.
 
-`--from agents:<harness,...>` reads session logs directly:
+## Agent transcripts
+
+`--from agents:<harness,...>` reads local session logs:
 
 | harness | location | format |
 |---|---|---|
-| `claude-code` | `~/.claude/projects/<slug>/<session>.jsonl` | JSONL, byte-offset cursor |
-| `codex` | `~/.codex/sessions/**/rollout-*.jsonl` | JSONL + a manifest index |
-| `opencode` | `~/.local/share/opencode/opencode.db` | SQLite, opened read-only |
+| `claude-code` | `~/.claude/projects/<slug>/<session>.jsonl` | JSONL with a byte-offset cursor |
+| `codex` | `~/.codex/sessions/**/rollout-*.jsonl` | JSONL plus a manifest index |
+| `opencode` | `~/.local/share/opencode/opencode.db` | SQLite opened read-only |
 | `openclaw` | `~/.openclaw/agents/*/sessions/<uuid>.jsonl` | JSONL |
 
-These are **copied** into `raw/` rather than referenced, because the harness rotates its
-own logs and a reference would silently rot. A session touched in the last two minutes is
-marked `partial`: indexed and searchable, but not curated, since paying a model to
-summarise a half-written transcript is waste.
+Transcript captures are copied into `raw/` because the harness may rotate its logs. A
+session modified within the last two minutes is marked `partial`: it can be searched but
+is not curated until it becomes stable.
 
-## Manual capture — anything
+## Manual capture
 
 ```bash
 hoppr add "a thought worth keeping" -t idea
-echo "..." | hoppr add                  # stdin
-hoppr add --file ./whatever.pdf         # any of the types above
-hoppr add --url https://example.com     # fetched and converted to text
+echo "..." | hoppr add
+hoppr add --file ./document.pdf
+hoppr add --url https://example.com --title "Reference"
 ```
 
-Capture kinds recorded in the index: `file`, `session`, `text`, `url`.
+`--url` records the URL; core hoppr does not fetch the page. Capture kinds in the index
+are `file`, `session`, `text`, and `url`.
 
 ## Redaction
 
-Text is scrubbed **at the extraction boundary, before anything is written**. Otherwise a
-secret would be indexed, embedded, committed to git (where deleting it later does not
-remove it), and sent to whichever model curates. This was not hypothetical: a live
-Anthropic key turned up in the first real transcript captured during development.
+hoppr redacts recognized credentials at the extraction boundary, before text is written
+to the store, indexed, embedded, committed, or sent to a model. The upstream source is
+never modified.
 
-Sixteen patterns:
+Built-in patterns cover:
 
-| | catches |
+| category | examples |
 |---|---|
-| `anthropic-key` `openrouter-key` `openai-key` | `sk-ant-…`, `sk-or-v1-…`, `sk-…` / `sk-proj-…` |
-| `github-token` `github-pat` | `ghp_ gho_ ghu_ ghs_ ghr_`, `github_pat_…` |
-| `slack-token` | `xoxb- xoxa- xoxp- xoxo- xoxs- xoxr-` |
-| `google-key` | `AIza…` |
-| `aws-access-key` | `AKIA… ASIA…` |
-| `stripe-key` | `sk_live_ sk_test_ rk_live_ rk_test_` |
-| `hf-token` `npm-token` | `hf_…`, `npm_…` |
-| `private-key` | `-----BEGIN … PRIVATE KEY-----` blocks, whole |
-| `bearer-token` | `Authorization: Bearer …` |
-| `jwt` | `eyJ….eyJ….…` |
-| `url-credentials` | `postgres://user:pass@host` |
-| `assigned-secret` | an assignment whose NAME says secret and whose value looks like one |
+| model providers | Anthropic, OpenRouter, and OpenAI keys |
+| developer services | GitHub tokens, Slack tokens, npm tokens, Hugging Face tokens |
+| cloud and payments | Google API keys, AWS access keys, Stripe keys |
+| generic credentials | private keys, bearer tokens, JWTs, and credentials in URLs |
+| assignments | values assigned to names that indicate a secret |
 
-Plus an **entropy net underneath**, for vendors nobody has written a pattern for. It looks
-for what a secret IS — a long run of characters carrying far more information per
-character than language does — rather than which company issued it.
+An entropy check supplements the named patterns for unknown token formats. It excludes
+common high-entropy identifiers such as Git SHAs, UUIDs, content hashes, and tool-call
+IDs. Disable only that check with `[intake] redact_entropy = false`.
 
-The interesting half is what it must NOT flag. Git SHAs, UUIDs, content hashes and
-tool-call ids are all high-entropy by construction and all meant to be read; redacting
-them would corrupt the text while protecting nothing. Tuned against 10.7M characters of
-real Claude Code logs, where `srvtoolu_…` ids were the single largest source of false
-positives. Current rate: roughly one flag per 100k characters. `[intake]
-redact_entropy = false` turns it off.
+Replacements retain a label, such as `«redacted:anthropic-key»`, so surrounding text
+remains readable and the credential type is visible. Vendor-specific patterns run before
+generic ones to keep that label accurate.
 
-Three deliberate choices:
-
-- **Vendor patterns run before the broad ones.** Every `sk-…` key also matches the generic
-  OpenAI shape, so ordering is what makes the label name the right key to rotate. There is
-  a test for it.
-- **Replacements are labelled**, not blanked — `«redacted:anthropic-key»` — so the
-  surrounding text still reads and you can see what was removed.
-- **The upstream log is never modified.** hoppr is not the system of record for your agent
-  history and must not become a second copy of your secrets.
-
-It is pattern-based and therefore incomplete by construction. It reduces exposure; it does
-not make an untrusted corpus safe to publish. `[intake] redact = false` disables it;
-`[llm] provider = "ollama"` is the path where nothing leaves the machine.
+Redaction is pattern-based and incomplete. It reduces accidental exposure but does not
+make an untrusted corpus safe to publish. `[intake] redact = false` disables it. Use
+`[llm] provider = "ollama"` when extracted text must remain local.

@@ -1,7 +1,7 @@
 # Example configurations
 
-Working files, not fragments. Each one is a complete config you can copy into a
-store's `.hoppr/` and run.
+Each directory contains a complete configuration that can be copied into a store's
+`.hoppr/` directory.
 
 | example | for |
 |---|---|
@@ -14,8 +14,8 @@ store's `.hoppr/` and run.
 
 Schemas can live in their own files under `.hoppr/schemas/` — `graph.toml`,
 `wiki.toml`, `skills.toml`. They merge into the matching section and win over it.
-Split them out when they grow: a graph vocabulary with a sentence of guidance per type,
-or a wiki outline with a brief per page, buries the settings you actually tweak.
+Separate schema files are useful when a graph vocabulary or wiki outline becomes large
+enough to obscure the main store settings.
 
 **Sections inside a schema file are relative.** In `schemas/wiki.toml` write `[[outline]]`,
 not `[[wiki.outline]]` — the latter nests one level too deep and is silently ignored.

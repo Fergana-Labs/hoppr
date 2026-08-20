@@ -1,11 +1,10 @@
 # Reference implementations, not built
 
-Working code, removed from `src/` to keep the core to one idea: a folder plus a
-sleep-time index over it. Each of these reached outside that folder.
+These implementations were removed from `src/` because they require network access or
+external data sources beyond hoppr's local folder and transcript inputs.
 
-All four were verified against live services before removal — the measurements are in
-[`../FUTURE-SOURCES.md`](../FUTURE-SOURCES.md). They are kept as files rather than as
-git history because the history did not exist when they were pulled.
+All four were verified against live services before removal. Measurements and design
+notes are in [`../FUTURE-SOURCES.md`](../FUTURE-SOURCES.md).
 
 | file | was |
 |---|---|
