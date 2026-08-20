@@ -1,0 +1,84 @@
+{
+  "name": "hoppr",
+  "version": "0.0.1",
+  "description": "A local-first hopper for agent memory. Throw things in; a sleep-time agent curates them into a Karpathy-style LLM wiki, structured tables, and reusable skills. Served to other agents over MCP.",
+  "keywords": [
+    "mcp",
+    "llm-wiki",
+    "agent-memory",
+    "knowledge-base",
+    "claude-code",
+    "second-brain",
+    "local-first"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "bin": {
+    "hoppr": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "assets",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src test",
+    "lint:fix": "biome check --write src test",
+    "typecheck": "tsc --noEmit",
+    "hoppr": "node --experimental-strip-types src/cli.ts",
+    "e2e": "npm run build && bash test/e2e.sh",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^13.0.3",
+    "chokidar": "^5.0.0",
+    "commander": "^15.0.0",
+    "croner": "^10.0.1",
+    "hono": "^4.13.2",
+    "smol-toml": "^1.8.0",
+    "sqlite-vec": "^0.1.9",
+    "tinyglobby": "^0.2.17",
+    "ulid": "^3.0.2",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.9",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@napi-rs/canvas": "^1.0.7",
+    "mammoth": "^1.12.1",
+    "tesseract.js": "^7.0.0",
+    "unpdf": "^1.8.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samzliu/hoppr.git"
+  },
+  "homepage": "https://github.com/samzliu/hoppr#readme",
+  "bugs": {
+    "url": "https://github.com/samzliu/hoppr/issues"
+  }
+}

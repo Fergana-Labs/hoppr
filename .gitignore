@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+coverage/
+
+# Secrets. hoppr reads API keys from a .env beside the config; committing one
+# would persist it in history long after it was deleted from the file.
+.env
+.env.*
+!.env.example

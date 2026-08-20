@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest'
+import { parseBookmarks } from '../src/intake/fetch/bookmarks.ts'
+import { handlerFor, vttToText } from '../src/intake/fetch/handlers.ts'
+
+describe('url handler routing', () => {
+  const at = (u: string) => handlerFor(new URL(u)).id
+
+  it('sends an arXiv abstract to the arxiv handler', () => {
+    expect(at('https://arxiv.org/abs/1706.03762')).toBe('arxiv')
+  })
+
+  it('sends the arXiv PDF to the pdf handler, not back to arxiv', () => {
+    // arxiv used to claim every arxiv.org URL, so its own follow-up hop came
+    // back to it and re-captured the abstract instead of fetching the paper.
+    expect(at('https://arxiv.org/pdf/1706.03762')).toBe('pdf-url')
+  })
+
+  it('routes youtube in all its URL shapes', () => {
+    expect(at('https://www.youtube.com/watch?v=abc')).toBe('youtube')
+    expect(at('https://youtu.be/abc')).toBe('youtube')
+    expect(at('https://www.youtube.com/shorts/abcdefghijk')).toBe('youtube')
+  })
+
+  it('falls back to generic, and generic is last', () => {
+    expect(at('https://example.com/post')).toBe('generic')
+    expect(at('https://example.com/paper.pdf')).toBe('pdf-url')
+  })
+})
+
+describe('vtt transcripts', () => {
+  it('drops timing, tags and the rolling duplicate lines', () => {
+    // Auto-captions repeat each line as a two-line scrolling window; without
+    // dedup a transcript comes back at roughly twice its true length.
+    const vtt = [
+      'WEBVTT',
+      'Kind: captions',
+      'Language: en',
+      '',
+      '00:00:00.320 --> 00:00:02.000 align:start position:0%',
+      'we chose rank fusion',
+      '',
+      '00:00:02.000 --> 00:00:04.000',
+      'we chose rank fusion',
+      '',
+      '00:00:04.000 --> 00:00:06.000',
+      'because <c>the scales</c> differ',
+      '',
+      '00:00:06.000 --> 00:00:07.000',
+      '[Music]',
+    ].join('\n')
+    expect(vttToText(vtt)).toBe('we chose rank fusion because the scales differ')
+  })
+})
+
+describe('bookmark import', () => {
+  const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<DL><p>
+  <DT><H3>Research</H3>
+  <DL><p>
+    <DT><A HREF="https://arxiv.org/abs/1706.03762" ADD_DATE="1700000100" TAGS="ml,nlp">Attention</A>
+    <DT><H3>Systems</H3>
+    <DL><p>
+      <DT><A HREF="https://example.com/raft">Raft</A>
+    </DL><p>
+  </DL><p>
+  <DT><A HREF="https://example.com/hn" ADD_DATE="1700000300">HN &amp; friends</A>
+</DL><p>`
+
+  it('keeps the folder path, which is a taxonomy a human already built', () => {
+    const marks = parseBookmarks(html)
+    expect(marks.map((b) => b.folders)).toEqual([['Research'], ['Research', 'Systems'], []])
+  })
+
+  it('reads tags and decodes entities in titles', () => {
+    const marks = parseBookmarks(html)
+    expect(marks[0]!.tags).toEqual(['ml', 'nlp'])
+    expect(marks[2]!.title).toBe('HN & friends')
+  })
+
+  it('converts ADD_DATE seconds to milliseconds', () => {
+    expect(parseBookmarks(html)[0]!.addedAt).toBe(1_700_000_100_000)
+  })
+
+  it('ignores non-http entries like javascript: bookmarklets', () => {
+    expect(parseBookmarks('<DL><DT><A HREF="javascript:void(0)">x</A></DL>')).toHaveLength(0)
+  })
+})

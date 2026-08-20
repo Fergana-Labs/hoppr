@@ -1,0 +1,157 @@
+# hoppr — configuration
+# Every value shown is the default; delete a line to keep the default.
+# Precedence: defaults < this file < ./.hoppr/hoppr.toml < HOPPR_* env < CLI flags
+
+[store]
+scope = "global"                 # global | project | overlay
+
+[git]
+# The store is a git repo. `auto` commits once per curate pass, using the
+# curator's own log entry as the commit message — so `git log curated/` reads
+# as a changelog of your second brain, and `git diff` is the review UI.
+mode = "auto"                    # auto | off
+track_raw = true                 # false => gitignore raw/ (you back it up yourself)
+max_blob_mb = 5                  # larger binaries go to raw/blobs/, gitignored
+
+[wiki]
+# Layout follows Karpathy's LLM-wiki spec: sources/ concepts/ entities/
+# comparisons/, plus index.md and log.md. `flat` puts wiki/ at the store root.
+layout = "karpathy"
+concept_min_sources = 4          # a tag earns a concept page at this many sources
+entity_min_mentions = 3
+comparison_enabled = true
+digest_min_new = 5
+generate_index = true            # index.md is generated, not model-written
+claude_md = true                 # regenerate CLAUDE.md so the store self-describes
+
+[intake]
+# Scrub credentials at the extraction boundary, before anything is written.
+# On by default because hoppr reads agent logs, and those contain pasted API
+# keys and echoed .env files — which would otherwise be committed to git and
+# sent to whichever model curates. Pattern-based, so incomplete by nature.
+redact = true
+redact_patterns = []             # extra regexes, applied after the built-ins
+inbox = "inbox"
+debounce_ms = 20000              # quiet period before the fast pass fires
+
+[index]
+driver = "auto"                  # auto | better-sqlite3 | node-sqlite
+chunk_chars = 3200
+chunk_overlap = 320
+
+[llm]
+# `auto` tries raw HTTP APIs first — OPENROUTER_API_KEY, then ANTHROPIC_API_KEY,
+# then OPENAI_API_KEY, then a local Ollama — and only falls back to the `claude`
+# CLI, which needs no key but pays ~30s and ~11k cached prompt tokens per call.
+#
+# Tagging and table extraction run per item over the whole corpus, so they
+# belong on a real API. `hoppr doctor` warns if the fast tier lands on the CLI.
+#
+# `none` still ingests, indexes and searches; it just doesn't curate.
+provider = "auto"
+concurrency = 2
+
+# Split the tiers to put high-volume tagging on something cheap and fast, and
+# nightly synthesis on something better.
+# fast_provider = "openrouter"
+# quality_provider = "anthropic"
+
+# Model ids are provider-specific, so leave these unset to use whichever
+# provider resolves. Set them only to override.
+# [llm.models]
+# fast = "anthropic/claude-haiku-4.5"    # tagging, extraction — high volume
+# quality = "anthropic/claude-sonnet-5"  # synthesis, taxonomy, skills
+
+[embed]
+# Local ONNX by default: no API key, no per-item cost, nothing leaves the machine.
+# Neither the Claude Agent SDK nor OpenRouter offers an embeddings endpoint.
+provider = "local"
+model = "Xenova/bge-small-en-v1.5"
+dim = 384
+
+[curate]
+fast_batch = 8                   # batch: the Agent SDK spawns a subprocess per call
+max_raw_chars = 8000
+deep_cron = "0 3 * * *"
+deep_only_if_idle = true
+auto_merge = false               # propose merges; never rewrite without review
+dedup_threshold = 0.93
+
+[curate.budget]
+max_usd_per_day = 2.0
+max_calls_per_run = 200
+
+[search]
+default_scope = "curated"        # curated | raw | all
+limit = 10
+max_snippet_chars = 400
+
+[search.tier_boost]
+curated = 1.5                    # the distilled answer outranks its transcript
+
+[search.kind_boost]
+concept = 1.2
+digest = 1.2
+skill = 1.1
+
+[search.confidence_boost]
+high = 1.15
+medium = 1.0
+low = 0.8
+
+[skills]
+# Mined skills are PROPOSED, never auto-installed: a skill changes how every
+# future agent session behaves, so it gets a human review gate.
+enabled = true
+min_evidence = 3                 # a workflow must recur this often to qualify
+min_confidence = 0.6
+auto_install = false
+default_target = "~/.claude/skills"
+
+[views]
+enabled = true
+symlinks = false                 # index.md files by default; grep-safe, Windows-safe
+
+[tables.tags]
+# The taxonomy is itself a table. Existing tags are fed back to the model as
+# preferred vocabulary, so the tag set converges instead of drifting into
+# "ai-agents" / "agentic AI" / "LLM agents".
+vocabulary_size = 150
+max_new_tags_per_item = 2
+max_tags_per_item = 7
+bootstrap_floor = 20             # below this many tags the coinage cap is lifted
+pinned = ["work", "personal"]
+stoplist = ["misc", "other", "stuff", "general"]
+
+# ── User-defined frontmatter fields the curator fills on every page ──
+# [schema.status]
+# type = "enum"
+# values = ["idea", "active", "done"]
+# description = "Where this sits in my pipeline"
+
+# ── Connectors: auto-sync agent session logs ──
+[connectors.claude-code]
+enabled = true
+include_sidechains = false       # subagent transcripts are usually noise
+min_turns = 2                    # skip trivial sessions; no LLM call for them
+poll_seconds = 60
+exclude_globs = []
+
+[connectors.codex]
+enabled = true
+
+[connectors.opencode]
+enabled = true
+
+[connectors.openclaw]
+enabled = true
+
+# ── Curator integrations (MCP servers the nightly pass may call) ──
+# `tools` is a REQUIRED allowlist. There is no wildcard: raw captures are
+# untrusted content, and this curator is a tool-using agent reading them.
+# [integrations.linear]
+# command = "npx"
+# args = ["-y", "@linear/mcp"]
+# enabled = true
+# tools = ["search_issues", "get_issue"]
+# stages = ["triage", "enrichment"]

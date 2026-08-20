@@ -1,0 +1,56 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Node 20/22 exercise better-sqlite3; 24 also exercises the
+        # node:sqlite fallback path, which is the whole point of having one.
+        node: ['20', '22', '24']
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '${{ matrix.node }}', cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: e2e against the built artifact
+        run: bash test/e2e.sh
+        env: { HOPPR_NO_LLM: '1' }
+
+  driver-matrix:
+    # The fallback must be exercised on its own, not just as a happy accident
+    # of better-sqlite3 being present.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm test
+        env: { HOPPR_INDEX_DRIVER: node-sqlite }
+
+  install:
+    # Catches the class of bug where something works from the repo but not
+    # from the published tarball (missing files, bad bin path, absent assets).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', cache: npm }
+      - run: npm ci && npm run build
+      - run: npm pack --pack-destination /tmp
+      - run: |
+          cd /tmp && npm init -y >/dev/null && npm install /tmp/hoppr-*.tgz
+          ./node_modules/.bin/hoppr --store /tmp/store init
+          ./node_modules/.bin/hoppr --store /tmp/store add "ci smoke test"
+          ./node_modules/.bin/hoppr --store /tmp/store search smoke --scope all
+          ./node_modules/.bin/hoppr --store /tmp/store doctor
