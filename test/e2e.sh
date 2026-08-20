@@ -99,8 +99,8 @@ SRC="$(dirname "$STORE")/papers"; rm -rf "$SRC"; mkdir -p "$SRC/sub"
 printf '# Rank fusion\nRRF at k=60 needs no calibration.\n' > "$SRC/rrf.md"
 printf '# Timers\nFake timers leak across files.\n' > "$SRC/sub/timers.md"
 HN=("node" "$ROOT/dist/cli.mjs")
-"${HN[@]}" new papers --from "dir:$SRC" >/dev/null 2>&1
-"${HN[@]}" new work --from agents:claude-code >/dev/null 2>&1
+"${HN[@]}" init --global --name papers --from "dir:$SRC" >/dev/null 2>&1
+"${HN[@]}" init --global --name work --from agents:claude-code >/dev/null 2>&1
 N=$("${HN[@]}" --json hoppers 2>/dev/null | jq_ 'print(all(k in [x["name"] for x in d["data"]] for k in ("papers","work")))')
 check "two isolated hoppers, each with its own store" "$N" "True"
 
@@ -142,7 +142,7 @@ check "hoppr_list exposes every hoppr to an agent" "$TOOLS" "True"
 
 echo "── daemon (one process, all hoppers) ──"
 HD=("node" "$ROOT/dist/cli.mjs")
-"${HD[@]}" new dtest --from manual >/dev/null 2>&1
+"${HD[@]}" init --global --name dtest --from manual >/dev/null 2>&1
 "${HD[@]}" daemon start >/dev/null 2>&1
 sleep 4
 "${HD[@]}" daemon status 2>/dev/null | grep -q running && ok "daemon starts" || bad "daemon did not start"

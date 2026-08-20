@@ -1,6 +1,6 @@
 # A large corpus you want to SEARCH, not summarise.
 #
-#   hoppr new archive --from dir:~/Archive --curation index-only
+#   hoppr init --global --name archive --from dir:~/Archive --curation index-only
 
 [hopper]
 name = "archive"

@@ -1,6 +1,6 @@
 # A folder of prose — meeting notes, research, docs you have collected.
 #
-#   cd ~/notes && hoppr new notes --here --from dir:.
+#   cd ~/notes && hoppr init
 
 [hopper]
 name = "notes"

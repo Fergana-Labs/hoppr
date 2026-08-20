@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { type LoadedConfig, loadConfig } from '../config/load.ts'
 import type { Config } from '../config/schema.ts'
 import { type SyncOptions, type SyncStats, syncAll } from '../connectors/registry.ts'
@@ -20,6 +21,7 @@ import { listPages, writeIndex } from '../store/wiki.ts'
 import { HopprError } from './errors.ts'
 import { contentHash } from './hash.ts'
 import { curationFor } from './profiles.ts'
+import { parseSource } from './source.ts'
 import type { RawRecord } from './types.ts'
 
 /**
@@ -27,6 +29,21 @@ import type { RawRecord } from './types.ts'
  * here is what lets the MCP layer be a genuinely thin adapter instead of a
  * second implementation that drifts.
  */
+function firstLine(text: string): string {
+  return (text.split('\n').find((l) => l.trim()) ?? 'note').trim().slice(0, 80)
+}
+
+/** Never clobber something already sitting in the user's folder. */
+async function uniquePathFor(path: string): Promise<string> {
+  if (!existsSync(path)) return path
+  const ext = path.slice(path.lastIndexOf('.'))
+  const stem = path.slice(0, path.lastIndexOf('.'))
+  for (let i = 2; i < 500; i++) {
+    if (!existsSync(`${stem}-${i}${ext}`)) return `${stem}-${i}${ext}`
+  }
+  return `${stem}-${Date.now()}${ext}`
+}
+
 export class Hoppr {
   readonly layout: Layout
   readonly config: Config
@@ -317,6 +334,54 @@ export class Hoppr {
   /** Capture, then index it immediately so it is searchable before the command returns. */
   async add(input: AddInput): Promise<RawRecord> {
     this.requireStore()
+    /**
+     * In a folder hoppr, a note you type belongs IN THE FOLDER.
+     *
+     * It used to land at `.hoppr/raw/2026/08/20/01M0GH4B48….md` — a ULID in a
+     * dated tree, invisible beside the files it sits among. The folder is
+     * already the raw tier; a second hidden one is a concept nobody asked for.
+     * Written as a readable slugged file and picked up by the sync below, so
+     * `raw/` exists only where there is genuinely no folder: copied transcripts.
+     */
+    const spec = parseSource(this.config.hopper.source)
+    const folder =
+      this.config.hopper.raw_mode === 'reference' && spec.kind === 'dir' ? spec.path : undefined
+
+    // A FILE added to a folder hoppr is copied into the folder, for the same
+    // reason: it then lives where you can see it, and the watcher and the
+    // debounced pass handle it exactly like every other file there.
+    if (folder && input.file) {
+      const { copyFile } = await import('node:fs/promises')
+      const src = resolve(input.file)
+      const dest = await uniquePathFor(join(folder, basename(src)))
+      await copyFile(src, dest)
+      await this.sync({}).catch(() => undefined)
+      const db = await this.db()
+      const row = db
+        .prepare<RawRecord>('SELECT * FROM raw WHERE external_path = :p')
+        .get({ p: dest })
+      if (row) return row
+      throw HopprError.transient(`copied to ${dest} but could not index it`)
+    }
+
+    if (folder && input.text && !input.file && !input.url) {
+      const { writeIfChanged } = await import('../store/atomic.ts')
+      const { slugify } = await import('./ids.ts')
+      const title = input.title ?? firstLine(input.text)
+      const path = await uniquePathFor(join(folder, `${slugify(title).slice(0, 60) || 'note'}.md`))
+      await writeIfChanged(
+        path,
+        input.title ? `# ${input.title}\n\n${input.text}\n` : `${input.text}\n`,
+      )
+      await this.sync({}).catch(() => undefined)
+      const db = await this.db()
+      const row = db
+        .prepare<RawRecord>('SELECT * FROM raw WHERE external_path = :p')
+        .get({ p: path })
+      if (row) return row
+      throw HopprError.transient(`wrote ${path} but could not index it`)
+    }
+
     const rec = await intakeAdd(this.layout, {
       ...input,
       redaction: input.redaction ?? {
@@ -325,11 +390,11 @@ export class Hoppr {
         extraPatterns: this.config.intake.redact_patterns,
       },
     })
+
     await this.indexRaw(rec).catch(() => {
       // Indexing is a convenience here, not the contract. A broken index must
       // never lose a capture — `hoppr reindex` will pick it up.
     })
-
     return rec
   }
 

@@ -1,6 +1,6 @@
 # Your coding sessions, mined for procedures worth keeping.
 #
-#   hoppr new work --from agents:claude-code,codex
+#   hoppr init --global --name work --from agents:claude-code,codex
 
 [hopper]
 name = "work"

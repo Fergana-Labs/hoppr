@@ -71,9 +71,9 @@ A hoppr works like a Git repository: commands run in nested directories find the
 Point one at material you already have:
 
 ```bash
-hoppr new work --from agents:claude-code,codex
-hoppr new papers --from dir:~/Downloads --curation papers
-hoppr new archive --from dir:~/Archive --curation index-only
+hoppr init --global --name work --from agents:claude-code,codex
+hoppr init --global --name papers --from dir:~/Downloads --curation papers
+hoppr init --global --name archive --from dir:~/Archive --curation index-only
 ```
 
 Folder sources stay in place. Agent transcripts are copied because their original logs

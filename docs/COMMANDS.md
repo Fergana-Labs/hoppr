@@ -16,7 +16,9 @@ a `.hoppr/` store, the way git finds `.git/`.
 ## Creating and listing hoppers
 
 ```bash
-hoppr new <name> --from <source> [--here] [--curation <preset>]
+hoppr init [path]                       # index THIS folder — like `git init`
+hoppr init --from agents:claude-code,codex --global --name work
+hoppr init --from dir:~/Downloads --global --name papers
 ```
 
 | option | meaning |
@@ -24,14 +26,16 @@ hoppr new <name> --from <source> [--here] [--curation <preset>]
 | `--from dir:<path>` | index a folder; the files stay where they are |
 | `--from agents:claude-code,codex,opencode,openclaw` | index your AI coding sessions |
 | `--from manual` | nothing automatic; you throw things in by hand |
-| `--here` | put the store in `./.hoppr` instead of `~/.hoppr/<name>` |
+| *(omitted)* | **the folder you are in** |
+| `--global --name <n>` | put the store in `~/.hoppr/<n>` instead of here |
+| `--manual` | capture-only: do not index the surrounding folder |
 | `--curation <preset>` | `notes` \| `papers` \| `agents` \| `index-only` \| `minimal` |
 | `--describe <text>` | the one-line "when to use this" an agent reads to pick a hoppr |
 | `--copy` | copy raw inputs into the store instead of referencing in place |
 | `--exclude <glob...>` | skip these paths (`.hopprignore` is the fuller mechanism) |
 | `-y, --yes` | index and curate immediately, without asking |
 
-`hoppr new` can index and curate immediately. In a non-interactive terminal, the prompt
+`hoppr init` can index and curate immediately. In a non-interactive terminal, the prompt
 defaults to no so scripts do not start model work unexpectedly.
 
 ```bash
@@ -82,10 +86,23 @@ hoppr get <id> [--meta]      # one capture or page (id prefix is enough)
 hoppr source <id>            # the original bytes, unmodified
 hoppr related <id> [-n]      # vector neighbours plus wiki backlinks
 hoppr ls [-n] [--kind]       # newest captures first
-hoppr index [--rebuild]      # the wiki catalog
+hoppr catalog [--rebuild]    # the wiki catalog
 hoppr log [-n]               # the curator's diary
 hoppr stats                  # what is in the store
 ```
+
+## Getting it off the ground
+
+```bash
+hoppr index                  # sync + curate + embed, in the order it has to happen
+hoppr index --no-curate      # index and embed only; no model calls
+hoppr index --full           # pull all history, not the default window
+```
+
+`hoppr init` creates the store and offers to do this straight away. `hoppr index` is the
+same thing on demand, for after you have edited the config. Three separate commands to get
+going was two too many — someone edits `hoppr.toml`, runs the obvious one, and finds an
+empty store because they ran the second step and not the first.
 
 ## Curating
 

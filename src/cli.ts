@@ -2,7 +2,6 @@
 import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { Command } from 'commander'
-import { defaults } from './config/schema.ts'
 import { HopprError } from './core/errors.ts'
 import { Hoppr } from './core/hoppr.ts'
 import { c, human, printJson, relTime } from './core/out.ts'
@@ -42,109 +41,114 @@ program
   .option('--global', `create it in ${'~/.hoppr'}/<name> instead of here`)
   .option('--name <name>', 'what to call it (default: this directory)')
   .option('-y, --yes', 'index and curate immediately, without asking')
-  .action(async (path?: string, o: { global?: boolean; name?: string; yes?: boolean } = {}) => {
-    // `git init` makes `.git` HERE. Anything else would be a different tool
-    // wearing the same word: the whole point of a per-directory store is that
-    // it moves, clones and deletes with the thing it describes.
-    const explicit = path ?? (program.opts().store as string | undefined)
-    const root = explicit
-      ? Layout.resolveRoot(explicit)
-      : o.global
-        ? join(Layout.home(), o.name ?? basename(process.cwd()))
-        : join(process.cwd(), '.hoppr')
-    const r = await initStore(root, defaults())
-    // Index it, so the daemon and `-H` can reach a store created anywhere.
-    const { register } = await import('./store/manifest.ts')
-    await register({
-      name: o.name ?? (basename(root) === '.hoppr' ? basename(dirname(root)) : basename(root)),
-      path: root,
-      source: 'manual',
-    })
-    if (wantJson()) return printJson(r)
-    console.log(
-      r.created
-        ? `${c.green('created')} store at ${c.bold(root)}`
-        : `store already exists at ${c.bold(root)} ${c.dim('(refreshed skeleton)')}`,
-    )
-    if (r.gitInitialized) console.log(c.dim('  git repo initialized'))
-    console.log(`
+  .option('--manual', 'capture-only: do not index the surrounding folder')
+  .option('--from <source>', 'dir:<path> | agents:<harness,...> | manual (default: this folder)')
+  .option('--describe <text>', 'one line telling an agent when to use this hoppr')
+  .option('--curation <preset>', 'notes | papers | agents | index-only | minimal')
+  .option('--copy', 'copy raw inputs into the store instead of referencing in place')
+  .option('--exclude <glob...>', 'skip these paths')
+  .action(
+    async (
+      path?: string,
+      o: {
+        global?: boolean
+        name?: string
+        yes?: boolean
+        manual?: boolean
+        from?: string
+        describe?: string
+        curation?: string
+        copy?: boolean
+        exclude?: string[]
+      } = {},
+    ) => {
+      // `git init` makes `.git` HERE. Anything else would be a different tool
+      // wearing the same word: the whole point of a per-directory store is that
+      // it moves, clones and deletes with the thing it describes.
+      const explicit = path ?? (program.opts().store as string | undefined)
+      const here = !explicit && !o.global
+      const root = explicit
+        ? Layout.resolveRoot(explicit)
+        : o.global
+          ? join(Layout.home(), o.name ?? basename(process.cwd()))
+          : join(process.cwd(), '.hoppr')
+
+      // …and `git init` TRACKS the directory you ran it in. Creating a store
+      // that ignores the folder around it was the same word doing a different
+      // thing: you would run this in a folder of notes and find that none of
+      // them had been indexed.
+      const name =
+        o.name ?? (basename(root) === '.hoppr' ? basename(dirname(root)) : basename(root))
+      // One command, because there was never really more than one idea: make a
+      // hoppr. `--from` points it somewhere other than here; everything else
+      // is the same store, the same layout, the same first pass.
+      let source = o.manual ? 'manual' : (o.from ?? (here ? `dir:${process.cwd()}` : 'manual'))
+      if (source !== 'manual') {
+        const { createHopper } = await import('./store/registry.ts')
+        const made = await createHopper({
+          name,
+          source,
+          root,
+          description: o.describe,
+          curation: o.curation,
+          rawMode: o.copy ? 'copy' : undefined,
+          exclude: o.exclude,
+        }).catch(() => undefined)
+        if (!made) source = 'manual'
+      }
+
+      const { loadConfig } = await import('./config/load.ts')
+      const { config } = await loadConfig({ root })
+      const r = await initStore(root, config)
+      // Index it, so the daemon and `-H` can reach a store created anywhere.
+      const { register } = await import('./store/manifest.ts')
+      await register({
+        name,
+        path: root,
+        source,
+      })
+      if (wantJson()) return printJson(r)
+      console.log(
+        r.created
+          ? `${c.green('created')} store at ${c.bold(root)}`
+          : `store already exists at ${c.bold(root)} ${c.dim('(refreshed skeleton)')}`,
+      )
+      if (r.gitInitialized) console.log(c.dim('  git repo initialized'))
+      console.log(`
   ${c.dim('raw/')}      immutable captures      ${c.dim('never modified')}
   ${c.dim('curated/')}  wiki, tables, skills    ${c.dim('regenerable')}
   ${c.dim('.index/')}   search index            ${c.dim('disposable')}
 `)
 
-    console.log(`
+      // Now that `init` has a source, the first pass belongs here too —
+      // otherwise you run it in a folder of notes and search finds nothing.
+      const { confirm } = await import('./onboard.ts')
+      if (source !== 'manual') {
+        const h0 = await Hoppr.open({ root })
+        try {
+          if (o.yes || (await confirm('  Index this folder now?'))) {
+            const stats = await h0.sync({})
+            const n = stats.reduce((a, x) => a + x.captured + x.updated, 0)
+            console.log(`${c.green('indexed')} ${n} file${n === 1 ? '' : 's'} — searchable now`)
+            const llm = await h0.llm('fast')
+            if (!llm) {
+              console.log(c.dim('  no model configured — keyword search works. `hoppr doctor`'))
+            } else if (o.yes || (await confirm('  Curate them into pages? (costs model calls)'))) {
+              const st = await h0.curate({})
+              console.log(`${c.green('curated')} ${st.logLine}`)
+            }
+          }
+        } finally {
+          h0.close()
+        }
+      }
+
+      console.log(`
 Next: ${c.cyan('hoppr query "…"')}   ${c.dim('or')}   ${c.cyan('hoppr add "something worth remembering"')}`)
-  })
+    },
+  )
 
 // ── hoppers ───────────────────────────────────────────────────────
-program
-  .command('new')
-  .description('create a hoppr pointed at a folder or at your agent logs')
-  .argument('<name>')
-  .option('--from <source>', 'dir:<path> | agents:<harness,...> | manual', 'manual')
-  .option('--describe <text>', 'one line telling an agent when to use this hoppr')
-  .option('--here', 'create the store in ./.hoppr instead of ~/.hoppr/<name>')
-  .option('--curation <preset>', 'notes | papers | agents | index-only | minimal')
-  .option('-y, --yes', 'index and curate immediately, without asking')
-  .option('--copy', 'copy raw inputs into the store instead of referencing in place')
-  .option('--exclude <glob...>', 'skip these paths (dir sources)')
-  .action(async (name: string, o: Record<string, string | string[] | boolean>) => {
-    const { createHopper } = await import('./store/registry.ts')
-    const info = await createHopper({
-      name,
-      source: String(o.from ?? 'manual'),
-      description: o.describe ? String(o.describe) : undefined,
-      rawMode: o.copy ? 'copy' : undefined,
-      exclude: o.exclude as string[] | undefined,
-      root: o.here ? join(process.cwd(), '.hoppr') : undefined,
-      curation: o.curation ? String(o.curation) : undefined,
-    })
-    // Build the skeleton with the hoppr's own config, so a reference-mode
-    // hoppr never gets a raw/ directory it will not use.
-    const h = await Hoppr.open({ root: info.root })
-    await initStore(h.layout.root, h.config)
-
-    if (wantJson()) return printJson(info)
-    console.log(`${c.green('created')} ${c.bold(info.name)}  ${c.dim(info.root)}`)
-    console.log(`  source   ${info.sourceLabel}`)
-    console.log(
-      `  profile  ${info.profile}${info.profile === 'agents' ? c.dim('  (mines skills)') : ''}`,
-    )
-    console.log(
-      `  raw      ${info.rawMode}${
-        info.rawMode === 'reference' ? c.dim('  (files stay where they are)') : ''
-      }`,
-    )
-    // Offer the first pass here rather than making someone discover `sync` and
-    // `curate` before the tool does anything at all. A store you cannot search
-    // yet looks like a store that does not work.
-    const { confirm } = await import('./onboard.ts')
-    console.log()
-    try {
-      if (info.source !== 'manual' && (o.yes || (await confirm('  Index it now?')))) {
-        const stats = await h.sync({})
-        const n = stats.reduce((a, x) => a + x.captured + x.updated, 0)
-        console.log(`${c.green('indexed')} ${n} item${n === 1 ? '' : 's'} — searchable now`)
-
-        const llm = await h.llm('fast')
-        if (!llm) {
-          console.log(c.dim('  no model configured — keyword search works. `hoppr doctor`'))
-        } else if (o.yes || (await confirm('  Curate them into pages? (costs model calls)'))) {
-          const st = await h.curate({})
-          console.log(`${c.green('curated')} ${st.logLine}`)
-        }
-        console.log(`\n  ${c.cyan(`hoppr -H ${name} query "…"`)}`)
-      } else {
-        console.log(
-          `  ${c.cyan(`hoppr -H ${name} sync`)}   then   ${c.cyan(`hoppr -H ${name} curate`)}`,
-        )
-      }
-    } finally {
-      h.close()
-    }
-  })
-
 program
   .command('hoppers')
   .description('list your hoppers')
@@ -719,14 +723,60 @@ program
   })
 
 program
-  .command('index')
-  .description('the wiki catalog')
+  .command('catalog')
+  .alias('wiki-index')
+  .description('the wiki catalog (curated/wiki/index.md)')
   .option('--rebuild', 'regenerate it')
   .action(async (o: { rebuild?: boolean }) => {
     const h = await ctx()
     if (o.rebuild) await h.rebuildIndexPage()
     const { readFile } = await import('node:fs/promises')
     console.log(await readFile(h.layout.wikiIndex, 'utf8').catch(() => ''))
+  })
+
+// ── index: the one command that gets a store off the ground ───────
+program
+  .command('index')
+  .alias('run')
+  .description('sync, curate, and embed — everything needed to make it searchable')
+  .option('--no-curate', 'index and embed only; no model calls')
+  .option('-n, --limit <n>', 'stop after this many captures')
+  .option('--full', 'pull all history, not the default window')
+  .action(async (o: { curate?: boolean; limit?: string; full?: boolean }) => {
+    const h = await ctx()
+    h.requireStore()
+    const limit = o.limit ? Number(o.limit) : undefined
+
+    // Everything a store needs after `hoppr init` and a look at the config,
+    // in the order it has to happen. Three commands to get going was two too
+    // many: someone edits hoppr.toml, runs the obvious thing, and finds an
+    // empty store because they ran the second step and not the first.
+    const stats = await h.sync({ full: o.full })
+    const captured = stats.reduce((a, x) => a + x.captured + x.updated, 0)
+    console.log(`${c.green('indexed')} ${captured} item${captured === 1 ? '' : 's'}`)
+
+    if (o.curate !== false) {
+      const llm = await h.llm('fast')
+      if (!llm) {
+        console.log(c.yellow('no model provider — skipping curation'))
+        console.log(c.dim('  keyword search works. `hoppr doctor` for why.'))
+      } else {
+        const st = await h.curate({ limit })
+        console.log(`${c.green('curated')} ${st.logLine}`)
+      }
+    }
+
+    const e = await h.embedder().catch(() => undefined)
+    if (e) {
+      const em = await h.embed({}).catch(() => undefined)
+      if (em?.embedded) console.log(`${c.green('embedded')} ${em.embedded} (${em.cached} cached)`)
+    } else {
+      console.log(c.dim('no embedder — keyword search only. `hoppr setup` to add one.'))
+    }
+
+    console.log(
+      `\n  ${c.cyan('hoppr query "…"')}   ${c.dim('·')}   ${c.cyan('hoppr daemon start')} ${c.dim('to keep it current')}`,
+    )
   })
 
 // ── mcp ───────────────────────────────────────────────────────────
