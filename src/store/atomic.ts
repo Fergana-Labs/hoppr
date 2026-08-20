@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
@@ -53,8 +53,4 @@ export async function appendLine(path: string, line: string): Promise<void> {
   await ensureDir(dirname(path))
   const { appendFile } = await import('node:fs/promises')
   await appendFile(path, line.endsWith('\n') ? line : `${line}\n`, 'utf8')
-}
-
-export function fileHash(content: string | Uint8Array): string {
-  return createHash('sha256').update(content).digest('hex')
 }

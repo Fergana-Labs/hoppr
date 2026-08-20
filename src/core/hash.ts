@@ -25,9 +25,3 @@ export function sha256(input: string | Uint8Array): string {
 export function contentHash(body: string): string {
   return sha256(normalizeText(body))
 }
-
-/** Short display form: sha256:9f2ab3c1 */
-export function shortHash(h: string): string {
-  const hex = h.startsWith('sha256:') ? h.slice(7) : h
-  return `sha256:${hex.slice(0, 8)}`
-}

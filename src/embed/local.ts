@@ -69,12 +69,3 @@ export class LocalEmbedder implements Embedder {
     return vecs
   }
 }
-
-export async function localBackendAvailable(): Promise<boolean> {
-  try {
-    await import('@huggingface/transformers')
-    return true
-  } catch {
-    return false
-  }
-}

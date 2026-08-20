@@ -27,17 +27,25 @@ curate them.
 ## What you get
 
 ```text
-.hoppr/
-├── raw/                 immutable transcript captures
-├── curated/
-│   ├── wiki/            source pages + concepts + wikilinks
-│   ├── tables/          structured JSONL with source traces
-│   ├── skills/          reusable procedures, proposed for review
-│   └── prompts/         editable curation instructions
-├── .index/              BM25 + vector search
-├── CLAUDE.md            the store contract for filesystem agents
-└── hoppr.toml           source and curation settings
+my-notes/                the folder IS the raw tier — your files stay put
+├── meeting-notes.md
+├── rank-fusion.md
+└── .hoppr/
+    ├── curated/
+    │   ├── wiki/        source pages + concepts + wikilinks
+    │   ├── tables/      structured JSONL with source traces
+    │   ├── skills/      reusable procedures, proposed for review
+    │   └── prompts/     editable curation instructions
+    ├── schemas/         graph / wiki / skills, when they outgrow one file
+    ├── .index/          BM25 + vector search
+    ├── .env             API keys, gitignored
+    ├── CLAUDE.md        the store contract for filesystem agents
+    └── hoppr.toml       source and curation settings
 ```
+
+There is no `raw/` here: for a folder hoppr the folder itself is the raw tier. A
+`.hoppr/raw/` appears only for **agent logs**, which live in the harness's own directory
+and get deleted from it — so hoppr keeps a durable copy, named after its content.
 
 - **Search across sessions.** BM25 and local vector search are fused with RRF. Results
   can mix transcripts, wiki pages, table rows, and skills.
@@ -209,7 +217,8 @@ never rewritten         Git-tracked            rebuildable
 ```
 
 - A directory source is referenced in place.
-- Agent logs are copied into `raw/` because harnesses rotate them.
+- Agent logs are copied into `.hoppr/raw/` because harnesses delete from their own
+  directory; everything else is referenced where it already lives.
 - Curated Markdown, tables, and skills are tracked in Git.
 - Search indexes and embedding caches are rebuildable.
 - A single optional daemon watches every registered store; CLI and MCP access work

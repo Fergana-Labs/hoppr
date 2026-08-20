@@ -56,14 +56,3 @@ export async function commit(
   await git(root, ['commit', '-q', '-m', message])
   return git(root, ['rev-parse', 'HEAD'])
 }
-
-export async function changedPaths(root: string, since = 'HEAD~1'): Promise<string[]> {
-  if (!isRepo(root)) return []
-  const out = await git(root, ['diff', '--name-only', since, 'HEAD']).catch(() => '')
-  return out ? out.split('\n') : []
-}
-
-export async function isDirty(root: string): Promise<boolean> {
-  if (!isRepo(root)) return false
-  return (await git(root, ['status', '--porcelain'])) !== ''
-}

@@ -130,8 +130,3 @@ export const docId = {
   row: (table: string, rowId: string) => `row:${table}/${rowId}`,
   skill: (slug: string) => `skill:${slug}`,
 }
-
-export function parseDocId(id: string): { scheme: string; rest: string } {
-  const i = id.indexOf(':')
-  return i < 0 ? { scheme: 'unknown', rest: id } : { scheme: id.slice(0, i), rest: id.slice(i + 1) }
-}

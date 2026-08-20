@@ -33,7 +33,7 @@ export const ConfigSchema = z.object({
       /** Which curation stages run. */
       profile: z.enum(['folder', 'agents', 'manual']).default('manual'),
       /**
-       * Convenience for `hoppr new --exclude`. `.hopprignore` beside the data
+       * Convenience for `hoppr init --exclude`. `.hopprignore` beside the data
        * is the real mechanism and the one to reach for — this exists so a
        * one-off exclusion at creation time does not require writing a file.
        */
@@ -298,7 +298,6 @@ export const ConfigSchema = z.object({
     .object({
       default_scope: z.enum(['curated', 'raw', 'all']).default('curated'),
       limit: z.number().int().positive().default(10),
-      rrf_k: z.number().int().positive().default(60),
       tier_boost: z.record(z.string(), z.number()).default({ curated: 1.5 }),
       kind_boost: z
         .record(z.string(), z.number())

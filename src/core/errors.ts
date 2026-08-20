@@ -41,7 +41,3 @@ export class HopprError extends Error {
     return new HopprError('internal', msg, detail)
   }
 }
-
-export function isRetryable(e: unknown): boolean {
-  return e instanceof HopprError ? e.kind === 'transient' : true
-}

@@ -18,7 +18,7 @@ import { appendFile, readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { glob } from 'tinyglobby'
 import { HopprError } from '../core/errors.ts'
-import { contentHash, sha256 } from '../core/hash.ts'
+import { sha256 } from '../core/hash.ts'
 import { isoStamp, newId, slugify } from '../core/ids.ts'
 import type { RawKind, RawMeta, RawRecord, SourceKind } from '../core/types.ts'
 import { ensureDir, writeAtomic } from './atomic.ts'
@@ -147,10 +147,6 @@ export async function readMeta(l: Layout, rawRelPath: string): Promise<RawRecord
   return { ...meta, path: rawRelPath }
 }
 
-export async function readBytes(l: Layout, rec: RawRecord): Promise<Buffer> {
-  return readFile(l.abs(rec.path))
-}
-
 export async function readText(l: Layout, rec: RawRecord): Promise<string> {
   return readFile(l.abs(rec.path), 'utf8')
 }
@@ -180,11 +176,6 @@ async function findArtifact(l: Layout, metaRel: string): Promise<string | undefi
 
 export async function exists(l: Layout, rawRelPath: string): Promise<boolean> {
   return existsSync(l.abs(rawRelPath))
-}
-
-/** Content hash of the extracted text, used for curate staleness. */
-export function textHash(text: string): string {
-  return contentHash(text)
 }
 
 /** Resolve a capture by ULID without scanning every sidecar. */

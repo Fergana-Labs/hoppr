@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { listAssets, readAsset } from '../core/assets.ts'
@@ -94,10 +93,6 @@ export async function migrate(db: Db): Promise<number> {
     count++
   }
   return count
-}
-
-export function dbExists(path: string): boolean {
-  return existsSync(path)
 }
 
 export function setMeta(db: Db, key: string, value: string): void {

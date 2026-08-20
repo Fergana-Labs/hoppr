@@ -89,10 +89,8 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
     }
   }
 
-  // `[retrieval.rerank] method` picks the fusion; `rrf_k` stays honoured so an
-  // existing config keeps its tuning.
   const fused = parsed.text
-    ? fuse(arms, cfg.retrieval.rerank.method, { k: cfg.retrieval.rerank.k ?? cfg.search.rrf_k })
+    ? fuse(arms, cfg.retrieval.rerank.method, { k: cfg.retrieval.rerank.k })
     : filterOnly(db, parsed.filters, k).map((c: Candidate) => ({
         docId: c.docId,
         score: 1 / (1 + c.score),

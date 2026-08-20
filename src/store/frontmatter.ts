@@ -72,11 +72,6 @@ export function buildPage(front: Record<string, unknown>, body: string): string 
   return `---\n${yaml}\n---\n\n${trimmed}\n`
 }
 
-/** Mutate one top-level key on a parsed doc, preserving everything else. */
-export function setField(doc: Document.Parsed, key: string, value: unknown): void {
-  doc.set(key, value)
-}
-
 export function getMachineMeta(data: Record<string, unknown>): Record<string, unknown> {
   const h = data.hoppr
   return h && typeof h === 'object' ? (h as Record<string, unknown>) : {}

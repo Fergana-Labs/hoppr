@@ -317,7 +317,6 @@ chunk_overlap = 200        # overlap between consecutive chunks
 redact_patterns = []       # extra regexes, on top of the 16 built in
 
 [search]
-rrf_k = 60                 # superseded by [retrieval.rerank] k; still honoured
 
 [views]
 ```

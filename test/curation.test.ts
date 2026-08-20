@@ -268,3 +268,49 @@ describe('docs stay in step with the code', () => {
     expect(dead, `config nothing reads: ${dead.join(', ')}`).toEqual([])
   })
 })
+
+describe('no two knobs for one thing', () => {
+  it('has exactly one setting for RRF damping', async () => {
+    // `search.rrf_k` was documented as "still honoured" and was unreachable:
+    // `retrieval.rerank.k` always carries a default, so the `??` beside it
+    // never fell through. A setting that does nothing is worse than none,
+    // and the existing "config nothing reads" test could not catch it —
+    // the key WAS referenced, just never reached.
+    const { defaults } = await import('../src/config/schema.ts')
+    const cfg = defaults() as Record<string, Record<string, unknown>>
+    expect(cfg.search).not.toHaveProperty('rrf_k')
+    expect(cfg.retrieval?.rerank).toHaveProperty('k')
+  })
+
+  it('has no export that nothing anywhere calls', async () => {
+    // Thirteen of these had accumulated. Dead code is not free: it is read,
+    // trusted and maintained by whoever comes next.
+    //
+    // "Nothing calls it" means ZERO occurrences outside its own declaration —
+    // not "nothing in another file", which flags every internal helper that
+    // happens to be exported. Getting that distinction wrong is what made the
+    // first version of this test cry wolf on twenty healthy functions.
+    const { readdir, readFile } = await import('node:fs/promises')
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) out.push(...(await walk(p)))
+        else if (e.name.endsWith('.ts')) out.push(p)
+      }
+      return out
+    }
+    const files = [...(await walk('src')), ...(await walk('test'))]
+    const corpus = (await Promise.all(files.map((f) => readFile(f, 'utf8')))).join('\n')
+
+    const dead: string[] = []
+    for (const body of await Promise.all((await walk('src')).map((f) => readFile(f, 'utf8')))) {
+      for (const m of body.matchAll(/^export (?:async )?function ([a-zA-Z_]\w*)/gm)) {
+        const name = m[1] as string
+        const uses = (corpus.match(new RegExp(`\\b${name}\\b`, 'g')) ?? []).length
+        if (uses <= 1) dead.push(name)
+      }
+    }
+    expect(dead, `nothing calls: ${dead.join(', ')}`).toEqual([])
+  })
+})

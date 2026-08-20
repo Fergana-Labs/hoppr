@@ -18,10 +18,6 @@ import type { Connector, ConnectorSource, IngestCandidate } from './types.ts'
 export const HARNESS_CONNECTORS: Connector[] = [claudeCode, codex, openclaw, opencode]
 export const CONNECTORS: Connector[] = [...HARNESS_CONNECTORS, dirConnector]
 
-export function connectorById(id: string): Connector | undefined {
-  return CONNECTORS.find((c) => c.id === id || c.id === id.replace(/_/g, '-'))
-}
-
 /** Config keys may be written with either separator; accept both. */
 function configFor(cfg: Config, id: string): Record<string, unknown> {
   return (cfg.connectors[id] ?? cfg.connectors[id.replace(/-/g, '_')] ?? {}) as Record<
@@ -123,11 +119,6 @@ function visionLlm(cfg: Config, secrets: Record<string, string>): Promise<LlmPro
     visionCache.set(key, hit)
   }
   return hit
-}
-
-/** Test hook: the memoized provider would otherwise leak between cases. */
-export function resetVisionCache(): void {
-  visionCache.clear()
 }
 
 export async function syncOne(
