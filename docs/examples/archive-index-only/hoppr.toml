@@ -1,0 +1,25 @@
+# A large corpus you want to SEARCH, not summarise.
+#
+#   hoppr new archive --from dir:~/Archive --curation index-only
+
+[hopper]
+name = "archive"
+source = "dir:~/Archive"
+profile = "folder"
+raw_mode = "reference"
+# No model call anywhere — which also means no tags, since tags come from the
+# same call that writes a page. Keyword and vector search still work.
+curation = "index-only"
+max_file_mb = 100
+
+[retrieval]
+embeddings = true
+
+[retrieval.extract]
+# The expensive parts, switchable individually. Off means the work never
+# happens: a folder of screenshots syncs in 0.08s with OCR off, 6.7s with it on.
+ocr = true
+image_llm = false             # no vision model — OCR gives the searchable text
+pdf = true
+pdf_ocr = true                # rasterise + OCR scans, capped at 5 pages
+office = true

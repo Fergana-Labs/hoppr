@@ -1,0 +1,45 @@
+# Papers and meeting notes, with a typed entity graph.
+
+[hopper]
+name = "research"
+source = "dir:~/research"
+profile = "folder"
+curation = "notes"
+
+[retrieval]
+graph = true                  # off by default; a relation vocabulary is domain-specific
+
+[graph]
+min_mentions = 2              # a hapax is noise
+
+# These are PROMPTS, not validation rules. Each description is handed to the
+# model verbatim as the definition of what counts — which is where the accuracy
+# comes from. "person" retrieves everything and nothing; the sentences below are
+# decision procedures.
+[[graph.entity_types]]
+name = "person"
+description = "A named individual who participated. Not an author cited in passing."
+
+[[graph.entity_types]]
+name = "project"
+description = "A named piece of work with a start and an end."
+
+[[graph.entity_types]]
+name = "tool"
+description = "A library, service, or program that something depends on."
+
+[[graph.relations]]
+name = "works_on"
+from = ["person"]
+to = ["project"]
+description = "Sustained involvement. Two names in one sentence is not a relation."
+
+[[graph.relations]]
+name = "depends_on"
+from = ["project"]
+to = ["tool", "project"]
+description = "One thing requires another to function, as stated in the text."
+
+[retrieval.rerank]
+method = "rrf"                # rrf | weighted | none
+k = 60                        # larger = flatter, more democratic

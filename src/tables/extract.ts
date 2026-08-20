@@ -287,3 +287,116 @@ export async function writeRowsFile(db: Db, l: Layout, table: string): Promise<v
     .join('\n')
   await writeIfChanged(l.tableRows(table), body ? `${body}\n` : '')
 }
+
+/**
+ * Read hand edits back out of `<table>.jsonl`.
+ *
+ * The file was write-only: rows were exported to it and nothing ever read them
+ * back, so editing a wrong cell — the obvious thing to do when you see one —
+ * was silently undone by the next pass. Now the file is the truth, the same
+ * way a hand-edited wiki page is.
+ *
+ * An edited or hand-written row is PINNED, so extraction maintains everything
+ * around it and never overwrites what you wrote. A row you delete from the
+ * file stays deleted: re-extracting it would make the file unfixable.
+ */
+export async function adoptRowEdits(db: Db, l: Layout, table: string): Promise<number> {
+  const { existsSync } = await import('node:fs')
+  const { readFile } = await import('node:fs/promises')
+  const path = l.tableRows(table)
+  if (!existsSync(path)) return 0
+
+  const current = new Map(
+    db
+      .prepare<{ row_id: string; data: string }>(
+        'SELECT row_id, data FROM tbl_rows WHERE table_name = :t',
+      )
+      .all({ t: table })
+      .map((r) => [r.row_id, r.data]),
+  )
+
+  let adopted = 0
+  const seen = new Set<string>()
+  for (const line of (await readFile(path, 'utf8')).split('\n')) {
+    if (!line.trim()) continue
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue // a malformed line is not a reason to discard the rest
+    }
+    const { row_id, raw_id, ...data } = parsed as {
+      row_id?: string
+      raw_id?: string
+      [k: string]: unknown
+    }
+    // A hand-written row need not carry an id; give it a stable one.
+    const id =
+      row_id ??
+      `manual-${contentHash(JSON.stringify(data))
+        .replace(/^sha256:/, '')
+        .slice(0, 16)}`
+    seen.add(id)
+    const next = JSON.stringify(data)
+    if (current.get(id) === next) continue
+
+    db.prepare(
+      `INSERT INTO tbl_rows (table_name,row_id,raw_id,page_id,data,pass_id,source_hash,prompt_hash,pinned)
+       VALUES (:t,:id,:raw,NULL,:data,'manual','','',1)
+       ON CONFLICT(table_name,row_id) DO UPDATE SET data = :data, pinned = 1`,
+    ).run({ t: table, id, raw: raw_id ?? null, data: next })
+    adopted++
+  }
+
+  // Deleting a line means deleting the row. Re-extracting it would make the
+  // file impossible to correct.
+  for (const id of current.keys()) {
+    if (seen.has(id)) continue
+    db.prepare('DELETE FROM tbl_rows WHERE table_name = :t AND row_id = :id').run({ t: table, id })
+    adopted++
+  }
+  return adopted
+}
+
+export interface AllTablesStats {
+  tables: number
+  written: number
+  failed: number
+}
+
+/**
+ * Fill every defined table from captures that have not been through it.
+ *
+ * This is what makes a table a standing instruction rather than a one-off
+ * report: define the schema once, and everything that arrives afterwards is
+ * classified into it on the next pass. Without this, `hoppr tables rebuild`
+ * had to be run by hand and a table silently went stale the moment you stopped
+ * thinking about it.
+ *
+ * Incremental by `source_hash` and `prompt_hash`, so a pass over an unchanged
+ * corpus costs nothing, and pinned rows are never overwritten.
+ */
+export async function extractAllTables(
+  db: Db,
+  l: Layout,
+  cfg: Config,
+  llm: LlmProvider,
+  opts: { onProgress?: (m: string) => void } = {},
+): Promise<AllTablesStats> {
+  const out: AllTablesStats = { tables: 0, written: 0, failed: 0 }
+  const { listTables } = await import('./def.ts')
+  for (const table of await listTables(l)) {
+    out.tables++
+    try {
+      // Hand edits first, so extraction sees them as pinned and leaves them be.
+      await adoptRowEdits(db, l, table.def.name).catch(() => 0)
+      const st = await extractTable(db, l, cfg, llm, table, { onProgress: opts.onProgress })
+      out.written += st.extracted
+      out.failed += st.failed
+    } catch {
+      // One broken definition must not stop the others.
+      out.failed++
+    }
+  }
+  return out
+}

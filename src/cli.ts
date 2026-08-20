@@ -722,6 +722,87 @@ program
     console.log(c.dim('  every switch stays overridable in hoppr.toml'))
   })
 
+// ── graph ─────────────────────────────────────────────────────────
+const graphCmd = program
+  .command('graph')
+  .description('typed entities and relations (enable with [retrieval] graph = true)')
+
+graphCmd
+  .command('list', { isDefault: true })
+  .description('entities, most-mentioned first')
+  .option('--type <type>')
+  .option('-q, --query <text>', 'substring match on the name')
+  .option('-n, --limit <n>', '', '40')
+  .action(async (o: Record<string, string>) => {
+    const h = await ctx()
+    h.requireStore()
+    const { findNodes } = await import('./organize/graph.ts')
+    const rows = findNodes(await h.db(), o.query, o.type, Number(o.limit ?? 40))
+    if (wantJson()) return printJson(rows)
+    if (!rows.length) {
+      console.log(c.dim('no entities yet'))
+      console.log(c.dim('  set [retrieval] graph = true, then `hoppr deep`'))
+      return
+    }
+    for (const r of rows) {
+      console.log(
+        `${c.dim(r.type.padEnd(10))} ${c.bold(r.name.padEnd(30))} ${c.dim(`${r.mentions}×`)}`,
+      )
+      if (r.summary) console.log(`  ${c.dim(r.summary.slice(0, 100))}`)
+    }
+  })
+
+graphCmd
+  .command('show <name>')
+  .description('one entity and everything one step from it')
+  .option('--type <type>')
+  .action(async (name: string, o: { type?: string }) => {
+    const h = await ctx()
+    h.requireStore()
+    const db = await h.db()
+    const { findNodes, neighbours } = await import('./organize/graph.ts')
+    const hit = findNodes(db, name, o.type, 1)[0]
+    if (!hit) throw HopprError.notFound(`no entity matching '${name}'`)
+    const near = neighbours(db, hit.id)
+    if (wantJson()) return printJson({ node: hit, neighbours: near })
+    console.log(`${c.bold(hit.name)}  ${c.dim(`${hit.type} · ${hit.mentions} mentions`)}`)
+    if (hit.summary) console.log(c.dim(`  ${hit.summary}`))
+    if (!near.length) return console.log(c.dim('  no relations'))
+    console.log()
+    for (const n of near) {
+      const arrow = n.direction === 'out' ? '→' : '←'
+      console.log(`  ${arrow} ${c.cyan(n.predicate.padEnd(16))} ${n.name}`)
+      // Every edge quotes the line it was read from: that is what makes the
+      // graph auditable rather than a pile of assertions.
+      if (n.evidence) console.log(`      ${c.dim(`"${n.evidence.slice(0, 90)}"`)}`)
+    }
+  })
+
+graphCmd
+  .command('build')
+  .description('extract now, without a full deep pass')
+  .option('-n, --limit <n>', '', '50')
+  .action(async (o: { limit?: string }) => {
+    const h = await ctx()
+    h.requireStore()
+    if (!h.config.retrieval.graph) {
+      throw HopprError.user('the graph is off — set [retrieval] graph = true')
+    }
+    const llm = await h.llm('fast')
+    if (!llm) throw HopprError.user('graph extraction needs a model provider')
+    const { buildGraph } = await import('./organize/graph.ts')
+    const st = await buildGraph(await h.db(), h.layout, h.config, llm, {
+      limit: Number(o.limit ?? 50),
+      onProgress: (m) => process.stderr.write(`\r  ${c.dim(m.slice(0, 70).padEnd(72))}`),
+    })
+    process.stderr.write('\r')
+    if (wantJson()) return printJson(st)
+    console.log(
+      `${c.green('built')} ${st.nodes} entities, ${st.edges} relations from ${st.scanned} captures` +
+        (st.dropped ? c.dim(`  (${st.dropped} off-schema dropped)`) : ''),
+    )
+  })
+
 const mcpCmd = program.command('mcp').description('serve the hopper to other agents')
 
 mcpCmd
@@ -999,6 +1080,12 @@ tablesCmd
   .option('-n, --limit <n>')
   .action(async (name: string | undefined, o: { limit?: string }) => {
     const h = await ctx()
+    // Hand edits in <table>.jsonl are the truth; adopt them before extracting.
+    const { adoptRowEdits } = await import('./tables/extract.ts')
+    const { listTables } = await import('./tables/def.ts')
+    for (const t of await listTables(h.layout)) {
+      await adoptRowEdits(await h.db(), h.layout, t.def.name).catch(() => 0)
+    }
     const stats = await h.extractTables({
       name,
       rebuild: true,

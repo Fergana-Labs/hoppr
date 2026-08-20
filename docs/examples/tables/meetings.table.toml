@@ -1,0 +1,23 @@
+# Drop this in .hoppr/curated/tables/ and run `hoppr tables rebuild meetings`.
+# After that it is a standing instruction: new captures are classified into it
+# on every curate pass.
+
+name = "meetings"
+description = "One row per meeting note."
+
+# `match` decides WHAT the extractor reads, and it matters more than it looks.
+#   scope:raw    the original capture, verbatim — use this for facts
+#   kind:source  the curated SUMMARY, which has already dropped the detail a
+#                table wants. A date that was in the source comes back "Unknown".
+match = "scope:raw"
+grain = "one-per-source"
+
+[columns]
+date      = { type = "date", required = true }
+attendees = { type = "list[string]" }
+decision  = { type = "string", description = "What was decided, in one sentence. Omit discussion." }
+
+# converging = true feeds the column's EXISTING values back to the model as
+# preferred vocabulary — the same trick that keeps tags from drifting, applied
+# per column. Without it this becomes abandoned / dropped / cancelled / killed.
+outcome   = { type = "enum", values = ["solved", "partial", "abandoned"], converging = true }

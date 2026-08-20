@@ -1,0 +1,12 @@
+# Same syntax as .gitignore, and the folder's own .gitignore is honoured too.
+
+drafts/
+*.tmp
+secret-stuff/
+
+[no-curate]
+# Indexed and searchable, never sent to a model. Indexing is pure SQL, so this
+# tier is free rather than merely cheap — the right setting for a big archive
+# worth finding but not worth paying to summarise.
+archive/**
+*.csv

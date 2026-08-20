@@ -78,8 +78,8 @@ agent history and let an LLM loose on it.
 
 ## Git is the review layer
 
-The store is a git repo, and each pass is its own commit with the curator's log entry as
-the message:
+The store is a git repo and **hoppr commits automatically — one commit per curate pass**,
+with the curator's own log entry as the message. `[git] mode = "off"` turns that off.
 
 ```
 $ git log --oneline
@@ -229,29 +229,78 @@ hoppr query "the meeting where we killed the v2 rewrite" --scope all --explain
 
 ## Tables
 
-Define a schema; the curator fills it from your captures. Every cell traces back to the
-transcript it came from.
+Define a schema; the curator fills it. Every cell traces back to the capture it came from.
 
 ```toml
-# curated/tables/sessions.table.toml
-name = "sessions"
-match = "kind:source"
+# .hoppr/curated/tables/meetings.table.toml
+match = "scope:raw"          # the ORIGINAL capture, not its summary
 [columns]
-problem = { type = "string", required = true }
-outcome = { type = "enum", values = ["solved", "partial", "abandoned"], converging = true }
-tools   = { type = "list[string]" }
+date      = { type = "date", required = true }
+attendees = { type = "list[string]" }
+outcome   = { type = "enum", values = ["solved","partial","abandoned"], converging = true }
 ```
 
 ```bash
-$ hoppr sql "select outcome, count(*) n from v_sessions group by outcome"
-outcome  |  n
-solved      2
-abandoned   2
-partial     1
+$ hoppr table meetings
+date        | attendees        | decision                    | outcome
+2026-03-11  | ["Dana","Sam"]   | Ship rank fusion with k=60  | solved
+2026-03-04  | ["Dana","Priya"] | Drop the v2 schema rewrite  | abandoned
+
+$ hoppr sql "select outcome, count(*) n from v_meetings group by outcome"
+$ hoppr table meetings --trace     # …with the source capture per row
 ```
 
-`converging = true` feeds the column's existing values back to the model as preferred
-vocabulary — the same trick that keeps the tag set from drifting, applied per column.
+A table is a **standing instruction**, not a one-off report: once defined, every new
+capture is classified into it on the next curate pass.
+
+`converging = true` feeds the column's existing values back as preferred vocabulary — the
+same trick that keeps tags from drifting, applied per column. Without it, `outcome`
+accumulates *abandoned*, *dropped*, *cancelled* and *killed*.
+
+**`match` matters more than it looks.** `scope:raw` reads the original capture;
+`kind:source` reads the curated summary, which has already dropped the detail a table
+wants — a date that was in the source comes back `"Unknown"`.
+
+### Editing rows by hand
+
+Rows are exported to `<table>.jsonl` and **that file is authoritative**. Edit a cell, add
+a line, delete a line — the next pass adopts your version and **pins** the row, so
+extraction maintains everything around it and never overwrites what you wrote.
+
+## The graph
+
+Off by default. Turn it on and define what you actually have — these entries are
+**prompts, not validation rules**: each `description` is handed to the model verbatim as
+the definition of what counts.
+
+```toml
+[retrieval]
+graph = true
+
+[[graph.entity_types]]
+name = "person"
+description = "A named individual who participated. Not an author cited in passing."
+
+[[graph.relations]]
+name = "works_on"
+from = ["person"]
+to = ["project"]
+description = "Sustained involvement. Two names in one sentence is not a relation."
+```
+
+```bash
+$ hoppr graph show Dana
+Dana  person · 2 mentions
+
+  → works_on         search rewrite
+      "Dana leads the search rewrite"
+```
+
+**Every edge quotes the line it was read from.** That is the difference between a graph
+you can audit and a pile of assertions — when an edge looks wrong you can read the
+sentence that produced it. Off-schema types and relations are dropped in code, not asked
+for politely in the prompt, because a model told to use five types will occasionally
+invent a sixth.
 
 ## Skills
 
@@ -275,16 +324,24 @@ Rejections are remembered.
 
 ```bash
 npm i -g hoppr    # or: npx hoppr
-hoppr init && hoppr setup
+cd ~/notes && hoppr init
+hoppr setup       # finds your agent logs, offers a hoppr for each
 ```
 
-Node ≥ 20. `better-sqlite3` is used when it loads, with an automatic fallback to Node's
-built-in **`node:sqlite`** — which supports FTS5, bm25, and sqlite-vec via
-`loadExtension`. That removes the most common way a native-dependency CLI fails to
-install on someone else's machine.
+Node ≥ 20. Thirteen runtime dependencies, and the only native one is
+`better-sqlite3` — which falls back automatically to Node's built-in `node:sqlite`
+(FTS5, bm25, and sqlite-vec via `loadExtension` all work), so a failed native build does
+not stop the install.
 
-Local embeddings (ONNX, ~200MB) are an **optional** dependency: without them you get
-keyword search and everything else, with a clear message rather than a crash.
+Five optional dependencies, each degrading to something usable rather than failing:
+
+| package | size | gives you | without it |
+|---|---|---|---|
+| `@huggingface/transformers` | ~210MB | local embeddings | keyword search only |
+| `tesseract.js` | 1.4MB + ~13MB data | OCR for images and scans | falls back to the vision model, then to name-only |
+| `unpdf` | small | PDF text layers | PDFs indexed by name |
+| `@napi-rs/canvas` | native, prebuilt | rasterising PDF pages for OCR | scanned PDFs indexed by name |
+| `mammoth` | 2.1MB | Word tables and footnotes | built-in reader, prose only |
 
 ### Models
 
@@ -512,13 +569,14 @@ Things that look like details and are load-bearing:
 
 - [`docs/COMMANDS.md`](docs/COMMANDS.md) — every command, flag, and config surface
 - [`docs/FILE-TYPES.md`](docs/FILE-TYPES.md) — what hoppr can read, and what it does with it
+- [`docs/examples/`](docs/examples/) — complete config files you can copy
 - [`docs/FUTURE-SOURCES.md`](docs/FUTURE-SOURCES.md) — external sources: designed, measured, not built
 
 ## Development
 
 ```bash
 npm install
-npm run check      # typecheck + lint + 269 tests
+npm run check      # typecheck + lint + 280 tests
 npm run e2e        # build, then 38 end-to-end checks against the built artifact
 node src/cli.ts    # runs from source, no build step (Node strips the types)
 ```

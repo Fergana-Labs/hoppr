@@ -1,0 +1,26 @@
+# A folder of prose — meeting notes, research, docs you have collected.
+#
+#   cd ~/notes && hoppr new notes --here --from dir:.
+
+[hopper]
+name = "notes"
+source = "dir:."
+profile = "folder"
+raw_mode = "reference"        # files stay where they are; hoppr never opens them for writing
+curation = "notes"            # source pages + concept pages across them
+
+[wiki]
+# The single most useful string in this file. An agent that knows what the
+# corpus IS retrieves differently from one that knows only "documents".
+orientation = """
+Personal working notes: meeting records, decisions, and half-finished thinking,
+2024 onward. Use for what was decided and why, and who was involved. Meeting
+notes are reliable; the loose notes are drafts and often superseded.
+"""
+
+[curate]
+deep_cron = "0 3 * * *"       # nightly synthesis
+protect = ["wiki/overview.md"]  # this page is mine; never rewrite it
+
+[intake]
+debounce_ms = 20000           # quiet period after a file changes

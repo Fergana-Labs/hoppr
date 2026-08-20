@@ -1,0 +1,39 @@
+# Your coding sessions, mined for procedures worth keeping.
+#
+#   hoppr new work --from agents:claude-code,codex
+
+[hopper]
+name = "work"
+source = "agents:claude-code,codex"
+profile = "agents"
+raw_mode = "copy"             # harnesses rotate their own logs; a reference would rot
+curation = "agents"
+
+[wiki]
+orientation = """
+Transcripts of past AI coding sessions across my projects. Use for how a
+problem was actually solved, including the wrong turns — the failures are the
+part no README has. Recent sessions are more reliable; anything older than a
+year may describe an API that has since changed.
+"""
+
+[skills]
+enabled = true
+mine = "targeted"             # auto | targeted | off
+# In `targeted` mode only these are looked for. Naming the gaps is more useful
+# than being told what you already do most often.
+targets = [
+  "cutting a release",
+  "debugging a flaky test suite",
+  "adding a new database migration",
+]
+min_evidence = 3              # recurrences before anything is proposed
+refresh_after = 5             # new sessions before proposing an update
+auto_install = false          # ALWAYS review — a skill changes every future session
+
+[llm]
+fast_provider = "openrouter"  # tagging and extraction: high volume, cheap
+quality_provider = "anthropic"  # synthesis and skill mining: being wrong compounds
+
+[curate]
+protect = ["skills/**"]       # I maintain these by hand

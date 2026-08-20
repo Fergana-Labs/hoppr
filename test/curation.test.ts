@@ -142,3 +142,46 @@ describe('seed skills', () => {
     expect((await listAssets('skills')).sort()).toEqual(['comms-preferences', 'working-agreements'])
   })
 })
+
+describe('shipped examples', () => {
+  it('every example config parses and validates', async () => {
+    // Examples that do not load are worse than no examples: someone copies one
+    // and gets a config error on a tool they have used for five minutes.
+    const { parse } = await import('smol-toml')
+    const { readFile, readdir } = await import('node:fs/promises')
+    const { ConfigSchema } = await import('../src/config/schema.ts')
+    const base = 'docs/examples'
+    let checked = 0
+    for (const dir of await readdir(base, { withFileTypes: true })) {
+      if (!dir.isDirectory()) continue
+      for (const f of await readdir(`${base}/${dir.name}`)) {
+        if (!f.endsWith('hoppr.toml')) continue
+        const raw = parse(await readFile(`${base}/${dir.name}/${f}`, 'utf8'))
+        const r = ConfigSchema.safeParse(raw)
+        expect(r.success, `${dir.name}/${f}: ${JSON.stringify(r.error?.issues?.[0])}`).toBe(true)
+        checked++
+      }
+    }
+    expect(checked).toBeGreaterThan(3)
+  })
+
+  it('every example table definition loads', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { parseTableDef } = await import('../src/tables/def.ts')
+    const path = 'docs/examples/tables/meetings.table.toml'
+    const { def } = parseTableDef(await readFile(path, 'utf8'), path)
+    expect(def.name).toBe('meetings')
+    // scope:raw, not kind:source — the summary has already dropped the detail.
+    expect(def.match).toBe('scope:raw')
+    expect(def.columns.outcome?.converging).toBe(true)
+  })
+
+  it('the example .hopprignore splits both sections', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { parseIgnoreSets, isIgnored } = await import('../src/connectors/ignore.ts')
+    const sets = parseIgnoreSets(await readFile('docs/examples/notes-folder/.hopprignore', 'utf8'))
+    expect(isIgnored('drafts/x.md', sets.skip)).toBe(true)
+    expect(isIgnored('archive/old.md', sets.noCurate)).toBe(true)
+    expect(isIgnored('archive/old.md', sets.skip)).toBe(false)
+  })
+})

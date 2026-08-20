@@ -106,15 +106,38 @@ Capture kinds recorded in the index: `file`, `session`, `text`, `url`.
 
 ## Redaction
 
-Text is scrubbed **at the extraction boundary, before anything is written** — otherwise a
+Text is scrubbed **at the extraction boundary, before anything is written**. Otherwise a
 secret would be indexed, embedded, committed to git (where deleting it later does not
-remove it), and sent to whichever model curates.
+remove it), and sent to whichever model curates. This was not hypothetical: a live
+Anthropic key turned up in the first real transcript captured during development.
 
-Patterns cover Anthropic / OpenRouter / OpenAI / GitHub / Slack / Google / AWS / Stripe /
-HuggingFace / npm keys, private key blocks, bearer tokens, JWTs, URL credentials, and
-assignments whose name says "secret". Vendor-specific patterns are tried before the broad
-ones so the label names the right key to rotate.
+Sixteen patterns:
 
-It is pattern-based and therefore incomplete by construction: it reduces exposure, it does
+| | catches |
+|---|---|
+| `anthropic-key` `openrouter-key` `openai-key` | `sk-ant-…`, `sk-or-v1-…`, `sk-…` / `sk-proj-…` |
+| `github-token` `github-pat` | `ghp_ gho_ ghu_ ghs_ ghr_`, `github_pat_…` |
+| `slack-token` | `xoxb- xoxa- xoxp- xoxo- xoxs- xoxr-` |
+| `google-key` | `AIza…` |
+| `aws-access-key` | `AKIA… ASIA…` |
+| `stripe-key` | `sk_live_ sk_test_ rk_live_ rk_test_` |
+| `hf-token` `npm-token` | `hf_…`, `npm_…` |
+| `private-key` | `-----BEGIN … PRIVATE KEY-----` blocks, whole |
+| `bearer-token` | `Authorization: Bearer …` |
+| `jwt` | `eyJ….eyJ….…` |
+| `url-credentials` | `postgres://user:pass@host` |
+| `assigned-secret` | an assignment whose NAME says secret and whose value looks like one |
+
+Three deliberate choices:
+
+- **Vendor patterns run before the broad ones.** Every `sk-…` key also matches the generic
+  OpenAI shape, so ordering is what makes the label name the right key to rotate. There is
+  a test for it.
+- **Replacements are labelled**, not blanked — `«redacted:anthropic-key»` — so the
+  surrounding text still reads and you can see what was removed.
+- **The upstream log is never modified.** hoppr is not the system of record for your agent
+  history and must not become a second copy of your secrets.
+
+It is pattern-based and therefore incomplete by construction. It reduces exposure; it does
 not make an untrusted corpus safe to publish. `[intake] redact = false` disables it;
 `[llm] provider = "ollama"` is the path where nothing leaves the machine.

@@ -127,6 +127,33 @@ export async function deepPass(
     }
   }
 
+  // ── 3b. knowledge graph ──────────────────────────────────────
+  if (h.config.retrieval.graph) {
+    try {
+      opts.onProgress?.('building the graph')
+      const { buildGraph } = await import('./graph.ts')
+      const g = await buildGraph(db, h.layout, h.config, llm, { onProgress: opts.onProgress })
+      if (g.nodes || g.edges) notes.push(`${g.nodes} entities, ${g.edges} relations`)
+      if (g.dropped) notes.push(`${g.dropped} off-schema dropped`)
+    } catch (e) {
+      notes.push(`graph stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+  }
+
+  // ── 3c. extraction tables ────────────────────────────────────
+  // Auto-tagging: a table is a standing instruction, so new captures flow into
+  // it as they arrive rather than waiting for someone to run `tables rebuild`.
+  try {
+    opts.onProgress?.('filling tables')
+    const { extractAllTables } = await import('../tables/extract.ts')
+    const rows = await extractAllTables(db, h.layout, h.config, llm, {
+      onProgress: opts.onProgress,
+    })
+    if (rows.written) notes.push(`${rows.written} table rows`)
+  } catch (e) {
+    notes.push(`table stage failed: ${(e as Error).message.slice(0, 60)}`)
+  }
+
   // ── 4. lint ──────────────────────────────────────────────────
   try {
     opts.onProgress?.('linting')
