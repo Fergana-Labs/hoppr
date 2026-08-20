@@ -85,11 +85,7 @@ orientation = ""
 # ── curation ──────────────────────────────────────────────────────────
 [curate]
 fast_batch = 8                   # captures per model call
-max_raw_chars = 8000
 deep_cron = "0 3 * * *"          # nightly; catches up on wake if missed
-deep_only_if_idle = true
-auto_merge = false               # propose, never rewrite
-dedup_threshold = 0.93
 # Curated paths the agent must never rewrite, relative to curated/.
 # Hand-editing a page already pins it; this is the pin you set BEFORE writing.
 protect = []                     # e.g. ["wiki/overview.md", "skills/**"]
@@ -113,8 +109,6 @@ mine = "auto"                    # auto | targeted | off
 seed = ["comms-preferences", "working-agreements"]
 min_evidence = 3                 # recurrences before a proposal
 min_confidence = 0.6
-refresh_after = 5                # new sessions before proposing an update
-auto_install = false             # ALWAYS review — a skill changes every session
 default_target = "~/.claude/skills"
 
 # ── tables ────────────────────────────────────────────────────────────
@@ -153,8 +147,6 @@ curated = 1.5                    # a page outranks the capture it came from
 # ── git ───────────────────────────────────────────────────────────────
 [git]
 mode = "auto"                    # one commit per curate pass; `git diff` is the review UI
-track_raw = true
-max_blob_mb = 5
 
 # ── daemon ────────────────────────────────────────────────────────────
 [daemon]

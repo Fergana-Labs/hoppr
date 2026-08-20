@@ -217,3 +217,54 @@ describe('schemas in their own files', () => {
     }
   })
 })
+
+describe('docs stay in step with the code', () => {
+  const read = async (f: string) => (await import('node:fs/promises')).readFile(f, 'utf8')
+  const DOCS = ['README.md', 'docs/COMMANDS.md', 'docs/FILE-TYPES.md', 'assets/hoppr.default.toml']
+
+  it('documents every config key somewhere', async () => {
+    // Docs drift silently and are only noticed by someone following them and
+    // finding nothing. Config is the surface where that hurts most.
+    const { defaults } = await import('../src/config/schema.ts')
+    const all = (await Promise.all(DOCS.map(read))).join('\n')
+    const missing: string[] = []
+    for (const [section, val] of Object.entries(defaults())) {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) continue
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) continue
+        if (!all.includes(k)) missing.push(`${section}.${k}`)
+      }
+    }
+    expect(missing, `undocumented: ${missing.join(', ')}`).toEqual([])
+  })
+
+  it('has no config key that nothing reads', async () => {
+    // The reverse failure: a knob that looks like a feature and does nothing.
+    // `wiki.comparison_enabled` configured page types that were never built.
+    const { readdir, readFile } = await import('node:fs/promises')
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) out.push(...(await walk(p)))
+        else if (e.name.endsWith('.ts') && p !== 'src/config/schema.ts') out.push(p)
+      }
+      return out
+    }
+    const src = (await Promise.all((await walk('src')).map((f) => readFile(f, 'utf8')))).join('\n')
+    const { defaults } = await import('../src/config/schema.ts')
+    // Keys read via a spread or passed whole are exempt; these are the leaf
+    // scalars a person would set expecting something to happen.
+    const exempt = new Set(['name', 'description', 'model', 'provider', 'host', 'port', 'dim'])
+    const dead: string[] = []
+    for (const [section, val] of Object.entries(defaults())) {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) continue
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) continue
+        if (exempt.has(k)) continue
+        if (!src.includes(k)) dead.push(`${section}.${k}`)
+      }
+    }
+    expect(dead, `config nothing reads: ${dead.join(', ')}`).toEqual([])
+  })
+})

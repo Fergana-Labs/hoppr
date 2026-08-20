@@ -338,9 +338,9 @@ hoppr skills why debug-flaky-vitest   # the exact sessions it came from
 hoppr skills install debug-flaky-vitest
 ```
 
-Skills are **proposed, never auto-installed**. A skill changes how every future agent
-session behaves, so it gets a human gate — the one thing in hoppr that isn't automatic.
-Rejections are remembered.
+Skills are **proposed, never auto-installed** — not by default, but at all. There is no
+setting to turn that off. A skill changes how every future agent session behaves, which
+makes it the one thing here that gets a human gate. Rejections are remembered.
 
 ## Install
 
@@ -598,7 +598,7 @@ Things that look like details and are load-bearing:
 
 ```bash
 npm install
-npm run check      # typecheck + lint + 289 tests
+npm run check      # typecheck + lint + 291 tests
 npm run e2e        # build, then 38 end-to-end checks against the built artifact
 node src/cli.ts    # runs from source, no build step (Node strips the types)
 ```

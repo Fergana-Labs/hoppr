@@ -110,7 +110,15 @@ export function curationFor(cfg: {
   return presetFor(cfg.hopper.curation, cfg.hopper.profile)
 }
 
-export function buildsPage(cfg: Parameters<typeof curationFor>[0], type: string): boolean {
+export function buildsPage(
+  cfg: Parameters<typeof curationFor>[0] & { wiki?: { page_types?: string[] } },
+  type: string,
+): boolean {
+  // An explicit `[wiki] page_types` overrides the preset — otherwise it is a
+  // setting that looks like a switch and does nothing, which is worse than not
+  // offering it.
+  const explicit = cfg.wiki?.page_types
+  if (explicit && explicit.length > 0) return explicit.includes(type)
   return curationFor(cfg).pageTypes.includes(type)
 }
 

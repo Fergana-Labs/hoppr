@@ -321,6 +321,7 @@ export class Hoppr {
       ...input,
       redaction: input.redaction ?? {
         enabled: this.config.intake.redact,
+        entropy: this.config.intake.redact_entropy,
         extraPatterns: this.config.intake.redact_patterns,
       },
     })

@@ -18,8 +18,6 @@ describe('config', () => {
     expect(d.git.mode).toBe('auto')
     expect(d.wiki.layout).toBe('karpathy')
     expect(d.embed.dim).toBe(384)
-    expect(d.curate.auto_merge).toBe(false) // propose, never rewrite
-    expect(d.skills.auto_install).toBe(false) // a skill changes future behavior
     expect(d.search.tier_boost.curated).toBe(1.5)
   })
 

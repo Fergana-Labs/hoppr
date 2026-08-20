@@ -28,8 +28,6 @@ targets = [
   "adding a new database migration",
 ]
 min_evidence = 3              # recurrences before anything is proposed
-refresh_after = 5             # new sessions before proposing an update
-auto_install = false          # ALWAYS review — a skill changes every future session
 
 [llm]
 fast_provider = "openrouter"  # tagging and extraction: high volume, cheap

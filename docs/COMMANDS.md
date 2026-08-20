@@ -29,12 +29,23 @@ hoppr new <name> --from <source> [--here] [--curation <preset>]
 | `--describe <text>` | the one-line "when to use this" an agent reads to pick a hoppr |
 | `--copy` | copy raw inputs into the store instead of referencing in place |
 | `--exclude <glob...>` | skip these paths (`.hopprignore` is the fuller mechanism) |
+| `-y, --yes` | index and curate immediately, without asking |
+
+`hoppr new` offers to index and curate on the spot, so the store is searchable before you
+have had to discover `sync` and `curate`. It defaults to **no** on anything that is not a
+terminal, so a scripted install cannot silently start spending.
 
 ```bash
 hoppr hoppers            # every hoppr, wherever it lives
-hoppr init [path]        # a bare store with no source
+hoppr init [path]        # a store here — like `git init`
+hoppr init --global --name <n>   # …under ~/.hoppr instead
+hoppr setup              # find your agent logs, offer a hoppr for each
 hoppr curation           # what each preset builds
 ```
+
+`hoppr setup` detects Claude Code, Codex, opencode and openclaw, reports how many sessions
+each holds, and offers a hoppr per harness. It states the cost before asking and is
+idempotent. `--skip-agents` does only the embedding-model download.
 
 ## Putting things in
 
@@ -47,7 +58,7 @@ hoppr sync                                # pull from the configured source
 hoppr sync --since 7d | --full | --dry-run
 ```
 
-`hoppr ingest` is an alias of `add`. Anything dropped in `<store>/inbox/` is captured by
+`hoppr ingest` is an alias of `hoppr add`. Anything dropped in `<store>/inbox/` is captured by
 the daemon and the file is consumed.
 
 ## Finding things
@@ -140,6 +151,21 @@ hoppr sql "select outcome, count(*) from v_sessions group by outcome" [-n]
 `--trace` walks each cell back to the capture it came from. `hoppr sql` is read-only: a
 separate connection, a single-`SELECT` parse gate, a row cap.
 
+## The graph
+
+Off by default. Turn it on with `[retrieval] graph = true` and define your entity types
+and relations — see [`examples/schemas/graph.toml`](examples/schemas/graph.toml).
+
+```bash
+hoppr graph                     # entities, most-mentioned first
+hoppr graph --type person -q dana
+hoppr graph show <name>         # one entity and everything one step from it
+hoppr graph build [-n]          # extract now, without a full deep pass
+```
+
+Every edge quotes the sentence it was read from, which is what makes the graph auditable.
+Off-schema types and relations are dropped in code, not asked for politely in the prompt.
+
 ## Serving it to agents
 
 ```bash
@@ -217,6 +243,70 @@ archive/**
 ```
 
 Indexing is pure SQL, so `[no-curate]` files are fully searchable at **zero token cost**.
+
+### Retrieval
+
+```toml
+[retrieval]
+embeddings = true          # vector search; keyword is always on
+graph = false              # typed entities and relations
+
+[retrieval.extract]        # the expensive parts of "index this folder"
+ocr = true                 # local OCR over images — free, ~800ms each
+image_llm = true           # a vision model describing what an image SHOWS
+pdf = true                 # PDF text layers
+pdf_ocr = true             # rasterise + OCR a scan, first 5 pages
+office = true              # Word, Excel, PowerPoint
+
+[retrieval.rerank]
+method = "rrf"             # rrf | weighted | none
+k = 60                     # rrf damping; larger = flatter
+```
+
+Off means the work **never happens**: a folder of screenshots syncs in 0.08s with `ocr`
+off and 6.7s with it on. `rrf` needs no calibration between bm25's unbounded negatives and
+cosine's 0..2, which is why it is the default; `weighted` normalises per query and is less
+stable; `none` takes one arm as-is, which is useful for debugging a ranking complaint.
+
+### Schemas in their own files
+
+`.hoppr/schemas/graph.toml`, `wiki.toml`, `skills.toml` each merge into the matching config
+section and win over it. Split one out when it grows — a graph vocabulary with a sentence
+of guidance per type buries the settings you actually tweak.
+
+**Sections inside a schema file are relative:** write `[[outline]]`, not
+`[[wiki.outline]]`. The latter nests a level too deep and is silently ignored.
+
+### Skills
+
+```toml
+[skills]
+mine = "auto"              # auto | targeted | off
+targets = ["cutting a release", "debugging a flaky test suite"]
+seed = ["comms-preferences", "working-agreements"]
+```
+
+`seed` skills ship with hoppr and are written into every new store. Mining finds what you
+do *often*; it cannot find what you never wrote down, and in a store's first week it has
+nothing to cluster. Edit one and it pins.
+
+### Advanced
+
+Rarely worth changing, but they exist:
+
+```toml
+[index]
+chunk_chars = 3200         # embedding chunk size
+chunk_overlap = 200        # …and how much consecutive chunks share
+
+[intake]
+redact_patterns = []       # extra regexes, on top of the 16 built in
+
+[search]
+rrf_k = 60                 # superseded by [retrieval.rerank] k; still honoured
+
+[views]
+```
 
 ### Environment
 

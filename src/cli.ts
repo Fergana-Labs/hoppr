@@ -1483,7 +1483,12 @@ skillsCmd
     const h = await ctx()
     const { installSkill } = await import('./organize/skills.ts')
     const { join } = await import('node:path')
-    const target = o.target ?? (o.project ? join(process.cwd(), '.claude', 'skills') : undefined)
+    // Explicit flag, then --project, then the configured default. Without the
+    // last one `[skills] default_target` was a setting nothing consulted.
+    const target =
+      o.target ??
+      (o.project ? join(process.cwd(), '.claude', 'skills') : undefined) ??
+      Layout.expand(h.config.skills.default_target)
     const r = await installSkill(h.layout, await h.db(), slug, { target, force: o.force })
     if (wantJson()) return printJson(r)
     const tag =

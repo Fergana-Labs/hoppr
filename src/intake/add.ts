@@ -9,6 +9,8 @@ import { redact } from './redact.ts'
 export interface RedactionConfig {
   enabled: boolean
   extraPatterns: string[]
+  /** The entropy net beneath the vendor patterns. */
+  entropy?: boolean
 }
 
 export interface AddInput {
@@ -93,6 +95,7 @@ export async function add(l: Layout, input: AddInput) {
     throw HopprError.user('nothing to add — pass text, --file, or --url (or pipe stdin)')
   const text = redact(raw_text, {
     enabled: input.redaction?.enabled,
+    entropy: input.redaction?.entropy,
     extraPatterns: input.redaction?.extraPatterns,
   }).text
 

@@ -54,8 +54,6 @@ export const ConfigSchema = z.object({
     .object({
       /** 'auto' = one commit per curate pass, message = the curator's log entry. */
       mode: z.enum(['auto', 'off']).default('auto'),
-      track_raw: z.boolean().default(true),
-      max_blob_mb: z.number().positive().default(5),
     })
     .prefault({}),
 
@@ -64,9 +62,6 @@ export const ConfigSchema = z.object({
       layout: z.enum(['karpathy', 'flat']).default('karpathy'),
       /** A tag earns a concept page once this many source pages carry it. */
       concept_min_sources: z.number().int().positive().default(4),
-      entity_min_mentions: z.number().int().positive().default(3),
-      comparison_enabled: z.boolean().default(true),
-      digest_min_new: z.number().int().positive().default(5),
       /** index.md is generated deterministically, not written by the model. */
       generate_index: z.boolean().default(true),
       claude_md: z.boolean().default(true),
@@ -148,7 +143,6 @@ export const ConfigSchema = z.object({
        */
       fast_provider: z.enum(PROVIDERS).optional(),
       quality_provider: z.enum(PROVIDERS).optional(),
-      concurrency: z.number().int().positive().default(2),
       /** Unset uses a per-provider default: an HTTP call and a CLI subprocess
        *  are an order of magnitude apart, so one number cannot fit both. */
       timeout_ms: z.number().int().positive().optional(),
@@ -179,12 +173,7 @@ export const ConfigSchema = z.object({
   curate: z
     .object({
       fast_batch: z.number().int().positive().default(8),
-      max_raw_chars: z.number().int().positive().default(8_000),
       deep_cron: z.string().default('0 3 * * *'),
-      deep_only_if_idle: z.boolean().default(true),
-      /** Propose merges; never rewrite user content without review. */
-      auto_merge: z.boolean().default(false),
-      dedup_threshold: z.number().min(0).max(1).default(0.93),
       /**
        * Curated paths the agent must never rewrite, as globs relative to
        * `curated/`.
@@ -327,8 +316,6 @@ export const ConfigSchema = z.object({
       enabled: z.boolean().default(true),
       min_evidence: z.number().int().positive().default(3),
       min_confidence: z.number().min(0).max(1).default(0.6),
-      /** Never true by default: a skill changes how every future session behaves. */
-      auto_install: z.boolean().default(false),
       default_target: z.string().default('~/.claude/skills'),
       /**
        * auto      — cluster transcripts and propose whatever recurs.
@@ -349,16 +336,12 @@ export const ConfigSchema = z.object({
        * the first week.
        */
       seed: z.array(z.string()).default(['comms-preferences', 'working-agreements']),
-      /** Re-propose an update once a skill has this many NEW supporting sessions. */
-      refresh_after: z.number().int().positive().default(5),
     })
     .prefault({}),
 
   views: z
     .object({
       enabled: z.boolean().default(true),
-      symlinks: z.boolean().default(false),
-      max_items_per_index: z.number().int().positive().default(500),
     })
     .prefault({}),
 
@@ -366,8 +349,6 @@ export const ConfigSchema = z.object({
     .object({
       host: z.string().default('127.0.0.1'),
       port: z.number().int().default(7717),
-      poll_ms: z.number().int().positive().default(2000),
-      job_concurrency: z.number().int().positive().default(4),
     })
     .prefault({}),
 

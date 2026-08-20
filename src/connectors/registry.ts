@@ -206,6 +206,7 @@ export async function syncOne(
           // be committed to git, where deleting it later does not remove it.
           const scrub = redact(item.body, {
             enabled: cfg.intake.redact,
+            entropy: cfg.intake.redact_entropy,
             extraPatterns: cfg.intake.redact_patterns,
           })
           if (scrub.redacted) {
