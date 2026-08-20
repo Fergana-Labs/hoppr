@@ -172,6 +172,21 @@ export class Layout {
   skillMeta(slug: string) {
     return join(this.skillDir(slug), '.hoppr.json')
   }
+  /**
+   * Schemas live in their own files because they GROW.
+   *
+   * A graph vocabulary with a sentence of guidance per type, or a wiki outline
+   * with a prompt per page, runs to hundreds of lines — and burying that in
+   * hoppr.toml makes the settings you actually tweak impossible to find. Each
+   * file merges into the config under its own section, so `[graph]` in
+   * hoppr.toml and `schemas/graph.toml` are the same thing written twice.
+   */
+  get schemas() {
+    return join(this.root, 'schemas')
+  }
+  schemaFile(name: string) {
+    return join(this.schemas, `${name}.toml`)
+  }
   get prompts() {
     return join(this.curated, 'prompts')
   }

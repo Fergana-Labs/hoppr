@@ -1,0 +1,51 @@
+# .hoppr/schemas/graph.toml
+#
+# Merges into [graph] and wins over it. Split out because a vocabulary with a
+# sentence of guidance per type is the long part of any real config.
+#
+# These are PROMPTS, not validation rules. Each description is handed to the
+# model verbatim as the definition of what counts — that is where the accuracy
+# comes from. "person" retrieves everything and nothing; the sentences below
+# are decision procedures.
+
+min_mentions = 2
+
+[[entity_types]]
+name = "person"
+description = "A named individual who participated in the work. Not an author cited in passing, and not a role like 'the reviewer'."
+
+[[entity_types]]
+name = "project"
+description = "A named piece of work with a beginning and an end. Not a team, not an ongoing area of responsibility."
+
+[[entity_types]]
+name = "tool"
+description = "A library, service, or program that something depends on. Include the version only if the text gives one."
+
+[[entity_types]]
+name = "decision"
+description = "A choice that was made, stated as what was chosen. Not a proposal, not an option under discussion."
+
+[[relations]]
+name = "works_on"
+from = ["person"]
+to = ["project"]
+description = "Sustained involvement stated in the text. Two names in the same sentence is not a relation."
+
+[[relations]]
+name = "depends_on"
+from = ["project"]
+to = ["tool", "project"]
+description = "One thing requires another to function. A mention of a tool is not a dependency."
+
+[[relations]]
+name = "decided"
+from = ["person"]
+to = ["decision"]
+description = "This person made or approved the decision, as stated. Being present at the meeting is not deciding."
+
+[[relations]]
+name = "supersedes"
+from = ["decision"]
+to = ["decision"]
+description = "This decision replaces an earlier one. Only when the text says so."

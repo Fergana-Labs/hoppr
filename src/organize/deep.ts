@@ -127,6 +127,18 @@ export async function deepPass(
     }
   }
 
+  // ── 3a. the pages you asked for by name ──────────────────────
+  if (h.config.wiki.outline.length > 0) {
+    try {
+      opts.onProgress?.('building the outline')
+      const { buildOutline } = await import('./outline.ts')
+      const o = await buildOutline(db, h.layout, h.config, llm, { onProgress: opts.onProgress })
+      if (o.written) notes.push(`${o.written} outline pages`)
+    } catch (e) {
+      notes.push(`outline stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+  }
+
   // ── 3b. knowledge graph ──────────────────────────────────────
   if (h.config.retrieval.graph) {
     try {

@@ -8,6 +8,15 @@ import { Layout } from '../store/layout.ts'
 import { type EnvSource, loadDotEnv } from './env.ts'
 import { type Config, ConfigSchema } from './schema.ts'
 
+/**
+ * Sections that may be split into `schemas/<name>.toml`.
+ *
+ * `tables` is absent on purpose: a table definition is one file per table and
+ * already lives under curated/, because each is independently editable and
+ * independently versioned.
+ */
+export const SCHEMA_SECTIONS = ['graph', 'wiki', 'skills'] as const
+
 export interface LoadedConfig {
   config: Config
   layout: Layout
@@ -60,6 +69,16 @@ export async function loadConfig(
   if (existsSync(cfgPath)) {
     merged = deepMerge(merged, await readToml(cfgPath))
     sources.push(cfgPath)
+  }
+
+  // Then the per-section schema files. They win over the same section in
+  // hoppr.toml: if you have bothered to give `graph` its own file, that is
+  // where you are editing it.
+  for (const section of SCHEMA_SECTIONS) {
+    const path = join(root, 'schemas', `${section}.toml`)
+    if (!existsSync(path)) continue
+    merged = deepMerge(merged, { [section]: await readToml(path) })
+    sources.push(path)
   }
 
   merged = deepMerge(merged, envOverrides())

@@ -86,6 +86,31 @@ export const ConfigSchema = z.object({
        * Empty ⇒ generated from the source and profile.
        */
       orientation: z.string().default(''),
+      /**
+       * An explicit outline: folders and files you want to exist, each with a
+       * prompt saying what belongs in it.
+       *
+       * The generated wiki is emergent — pages appear because captures
+       * clustered that way. That is right for discovery and wrong for the
+       * three or four pages you know you want up front: an overview, a
+       * glossary, an open-questions list. Naming them means they exist from
+       * day one and the curator has an instruction for each, rather than you
+       * hoping the clustering produces something similar.
+       *
+       * Long enough to deserve its own file: see `schemas/wiki.toml`.
+       */
+      outline: z
+        .array(
+          z.object({
+            /** Path under `curated/wiki/`, e.g. "overview.md" or "areas/". */
+            path: z.string(),
+            /** Given to the model verbatim as the brief for this page. */
+            prompt: z.string().default(''),
+            /** Rebuild every deep pass, or write once and leave alone. */
+            mode: z.enum(['maintain', 'once']).default('maintain'),
+          }),
+        )
+        .default([]),
     })
     .prefault({}),
 

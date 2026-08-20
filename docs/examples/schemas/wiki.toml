@@ -1,0 +1,49 @@
+# .hoppr/schemas/wiki.toml
+#
+# Split out of hoppr.toml because an outline with a brief per page runs long,
+# and burying it makes the settings you actually tweak impossible to find.
+# This file merges into the [wiki] section and wins over it.
+
+page_types = ["source", "concept"]
+
+orientation = """
+Engineering notes for the search team: design discussions, incident writeups,
+and decisions from 2025 onward. Use for what was decided and why. Incident
+notes are written same-day and reliable; design docs are often superseded by a
+later decision, so check dates before quoting one.
+"""
+
+# Pages you want to exist before any data arrives. Everything else in the wiki
+# is emergent — a concept page appears because captures clustered around a tag.
+# This is the other half: the two or three pages you know you want, each with a
+# standing brief.
+
+[[outline]]
+path = "overview.md"
+mode = "maintain"                  # rebuilt each deep pass
+prompt = """
+One page a new team member reads first. What this body of work is, the three or
+four threads running through it, and where to start. Link to concept pages
+rather than restating them. Under 400 words.
+"""
+
+[[outline]]
+path = "open-questions.md"
+mode = "maintain"
+prompt = """
+Questions the corpus raises and does not answer: decisions deferred, arguments
+left unresolved, things marked TODO and never revisited. One bullet each, with
+a [[wikilink]] to where it came up. If there are none, say so — do not invent.
+"""
+
+[[outline]]
+path = "glossary.md"
+mode = "maintain"
+prompt = """
+Terms used here that an outsider would not know, defined as THIS team uses
+them, not by their general meaning. Skip anything a competent engineer already
+knows.
+"""
+
+[[outline]]
+path = "areas/"                    # trailing slash = create the folder only

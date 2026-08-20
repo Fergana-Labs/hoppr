@@ -185,3 +185,35 @@ describe('shipped examples', () => {
     expect(isIgnored('archive/old.md', sets.skip)).toBe(false)
   })
 })
+
+describe('schemas in their own files', () => {
+  it('a wiki outline in schemas/wiki.toml actually loads', async () => {
+    // The example first wrote `[[wiki.outline]]`, which nests to
+    // wiki.wiki.outline and is SILENTLY dropped — it validated precisely
+    // because zod strips unknown keys. Sections inside a schema file are
+    // relative to the section the file names.
+    const { parse } = await import('smol-toml')
+    const { readFile } = await import('node:fs/promises')
+    const { ConfigSchema } = await import('../src/config/schema.ts')
+    const raw = parse(await readFile('docs/examples/schemas/wiki.toml', 'utf8'))
+    const cfg = ConfigSchema.parse({ wiki: raw })
+    expect(cfg.wiki.outline.length).toBeGreaterThanOrEqual(4)
+    expect(cfg.wiki.outline.map((o) => o.path)).toContain('overview.md')
+    // A trailing slash reserves a folder without dictating its pages.
+    expect(cfg.wiki.outline.some((o) => o.path.endsWith('/'))).toBe(true)
+    expect(cfg.wiki.orientation).toContain('search team')
+  })
+
+  it('a graph schema file carries its prompts', async () => {
+    const { parse } = await import('smol-toml')
+    const { readFile } = await import('node:fs/promises')
+    const { ConfigSchema } = await import('../src/config/schema.ts')
+    const raw = parse(await readFile('docs/examples/schemas/graph.toml', 'utf8'))
+    const cfg = ConfigSchema.parse({ graph: raw })
+    expect(cfg.graph.relations.length).toBeGreaterThanOrEqual(4)
+    for (const r of cfg.graph.relations) {
+      // A relation with no description is a name the model has to guess at.
+      expect(r.description.length, `${r.name} has no description`).toBeGreaterThan(20)
+    }
+  })
+})

@@ -41,7 +41,8 @@ program
   .argument('[path]', 'store root (default: ./.hoppr)')
   .option('--global', `create it in ${'~/.hoppr'}/<name> instead of here`)
   .option('--name <name>', 'what to call it (default: this directory)')
-  .action(async (path?: string, o: { global?: boolean; name?: string } = {}) => {
+  .option('-y, --yes', 'index and curate immediately, without asking')
+  .action(async (path?: string, o: { global?: boolean; name?: string; yes?: boolean } = {}) => {
     // `git init` makes `.git` HERE. Anything else would be a different tool
     // wearing the same word: the whole point of a per-directory store is that
     // it moves, clones and deletes with the thing it describes.
@@ -70,8 +71,10 @@ program
   ${c.dim('raw/')}      immutable captures      ${c.dim('never modified')}
   ${c.dim('curated/')}  wiki, tables, skills    ${c.dim('regenerable')}
   ${c.dim('.index/')}   search index            ${c.dim('disposable')}
+`)
 
-Next: ${c.cyan('hoppr add "something worth remembering"')}`)
+    console.log(`
+Next: ${c.cyan('hoppr query "…"')}   ${c.dim('or')}   ${c.cyan('hoppr add "something worth remembering"')}`)
   })
 
 // ── hoppers ───────────────────────────────────────────────────────
@@ -83,6 +86,7 @@ program
   .option('--describe <text>', 'one line telling an agent when to use this hoppr')
   .option('--here', 'create the store in ./.hoppr instead of ~/.hoppr/<name>')
   .option('--curation <preset>', 'notes | papers | agents | index-only | minimal')
+  .option('-y, --yes', 'index and curate immediately, without asking')
   .option('--copy', 'copy raw inputs into the store instead of referencing in place')
   .option('--exclude <glob...>', 'skip these paths (dir sources)')
   .action(async (name: string, o: Record<string, string | string[] | boolean>) => {
@@ -112,9 +116,33 @@ program
         info.rawMode === 'reference' ? c.dim('  (files stay where they are)') : ''
       }`,
     )
-    console.log(
-      `\n  ${c.cyan(`hoppr -H ${name} sync`)}   then   ${c.cyan(`hoppr -H ${name} curate`)}`,
-    )
+    // Offer the first pass here rather than making someone discover `sync` and
+    // `curate` before the tool does anything at all. A store you cannot search
+    // yet looks like a store that does not work.
+    const { confirm } = await import('./onboard.ts')
+    console.log()
+    try {
+      if (info.source !== 'manual' && (o.yes || (await confirm('  Index it now?')))) {
+        const stats = await h.sync({})
+        const n = stats.reduce((a, x) => a + x.captured + x.updated, 0)
+        console.log(`${c.green('indexed')} ${n} item${n === 1 ? '' : 's'} — searchable now`)
+
+        const llm = await h.llm('fast')
+        if (!llm) {
+          console.log(c.dim('  no model configured — keyword search works. `hoppr doctor`'))
+        } else if (o.yes || (await confirm('  Curate them into pages? (costs model calls)'))) {
+          const st = await h.curate({})
+          console.log(`${c.green('curated')} ${st.logLine}`)
+        }
+        console.log(`\n  ${c.cyan(`hoppr -H ${name} query "…"`)}`)
+      } else {
+        console.log(
+          `  ${c.cyan(`hoppr -H ${name} sync`)}   then   ${c.cyan(`hoppr -H ${name} curate`)}`,
+        )
+      }
+    } finally {
+      h.close()
+    }
   })
 
 program

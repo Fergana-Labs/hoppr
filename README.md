@@ -267,6 +267,28 @@ Rows are exported to `<table>.jsonl` and **that file is authoritative**. Edit a 
 a line, delete a line — the next pass adopts your version and **pins** the row, so
 extraction maintains everything around it and never overwrites what you wrote.
 
+### An explicit outline
+
+Most of the wiki is emergent — a concept page exists because captures clustered around a
+tag. That is right for discovery and wrong for the three pages you know you want before
+any data arrives. Name them, each with a standing brief:
+
+```toml
+# .hoppr/schemas/wiki.toml
+[[outline]]
+path = "open-questions.md"
+mode = "maintain"                # rebuilt each deep pass; `once` writes it and stops
+prompt = """
+Questions the corpus raises and does not answer: decisions deferred, arguments
+left unresolved, things marked TODO and never revisited. One bullet each, with a
+[[wikilink]] to where it came up. If there are none, say so — do not invent.
+"""
+```
+
+A page you hand-edit is pinned and left alone. A `path` ending in `/` reserves a folder
+without dictating its pages. If there is nothing to write about yet the page is skipped
+rather than filled with plausible generalities a later pass would have to unlearn.
+
 ## The graph
 
 Off by default. Turn it on and define what you actually have — these entries are
@@ -576,7 +598,7 @@ Things that look like details and are load-bearing:
 
 ```bash
 npm install
-npm run check      # typecheck + lint + 287 tests
+npm run check      # typecheck + lint + 289 tests
 npm run e2e        # build, then 38 end-to-end checks against the built artifact
 node src/cli.ts    # runs from source, no build step (Node strips the types)
 ```
