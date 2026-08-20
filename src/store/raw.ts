@@ -19,7 +19,7 @@ import { extname } from 'node:path'
 import { glob } from 'tinyglobby'
 import { HopprError } from '../core/errors.ts'
 import { contentHash, sha256 } from '../core/hash.ts'
-import { isoStamp, newId } from '../core/ids.ts'
+import { isoStamp, newId, slugify } from '../core/ids.ts'
 import type { RawKind, RawMeta, RawRecord, SourceKind } from '../core/types.ts'
 import { ensureDir, writeAtomic } from './atomic.ts'
 import type { Layout } from './layout.ts'
@@ -60,8 +60,12 @@ export async function append(l: Layout, o: AppendOptions): Promise<RawRecord> {
   const now = new Date()
   const created = o.created ?? now
   const ext = extFor(o)
-  const file = l.rawFile(now, id, ext)
-  const metaFile = l.rawMetaFile(now, id)
+  // Name the file after what it holds. The id is still the identity, and is
+  // kept as a suffix so two captures with the same title on the same day
+  // cannot collide.
+  const slug = o.title ? slugify(o.title) : undefined
+  const file = l.rawFile(now, id, ext, slug)
+  const metaFile = l.rawMetaFile(now, id, slug)
 
   if (existsSync(file)) throw HopprError.internal(`raw id collision: ${id}`)
 
@@ -198,13 +202,23 @@ export async function findById(l: Layout, id: string): Promise<RawRecord | undef
 export async function resolveId(l: Layout, prefix: string): Promise<RawRecord | undefined> {
   const exact = await findById(l, prefix)
   if (exact) return exact
-  const hits = await glob([`raw/**/${prefix}*.meta.json`], { cwd: l.root, absolute: false })
+
+  // Read the ids out of the sidecars rather than off the filenames. Filenames
+  // now lead with a slug so the directory can be browsed, which silently broke
+  // a glob that assumed the id came first — the id is in the metadata, and
+  // that is the only place it was ever authoritative.
+  const metas = await glob(['raw/**/*.meta.json'], { cwd: l.root, absolute: false })
+  const hits: Array<{ rel: string; meta: RawMeta }> = []
+  for (const rel of metas) {
+    const meta = JSON.parse(await readFile(l.abs(rel), 'utf8').catch(() => '{}')) as RawMeta
+    if (meta.id?.startsWith(prefix)) hits.push({ rel, meta })
+  }
   if (hits.length === 0) return undefined
   if (hits.length > 1) {
     throw HopprError.user(`ambiguous id '${prefix}' — matches ${hits.length} captures`)
   }
-  const meta = JSON.parse(await readFile(l.abs(hits[0]!), 'utf8')) as RawMeta
-  const artifact = await findArtifact(l, hits[0]!)
+  const hit = hits[0]!
+  const artifact = await findArtifact(l, hit.rel)
   if (!artifact) return undefined
-  return { ...meta, path: artifact }
+  return { ...hit.meta, path: artifact }
 }

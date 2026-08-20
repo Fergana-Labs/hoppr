@@ -78,7 +78,9 @@ describe('intake', () => {
       expect(rec.title).toBe('RRF notes')
       expect(rec.kind).toBe('text')
       expect(rec.source).toBe('cli')
-      expect(rec.path).toMatch(/^raw\/\d{4}\/\d{2}\/\d{2}\/[0-9A-Z]{26}\.md$/)
+      // Named after the content, with the id kept as a suffix: 9,000 files
+      // called 01M0GNYKK3KK…md is a directory you can query but never browse.
+      expect(rec.path).toMatch(/^raw\/\d{4}\/\d{2}\/\d{2}\/rrf-notes-[0-9A-Z]{6}\.md$/)
 
       const back = await rawStore.readMeta(layout, rec.path)
       expect(back.id).toBe(rec.id)

@@ -118,11 +118,22 @@ export class Layout {
   rawDir(d: Date) {
     return join(this.raw, ...datePath(d).split('/'))
   }
-  rawFile(d: Date, id: string, ext: string) {
-    return join(this.rawDir(d), `${id}${ext}`)
+  /**
+   * A copied capture, named so a human can read the directory.
+   *
+   * The id alone gave `01M0GNYKK3KK5JET15ZZEZ74CW.md`, which tells you nothing
+   * about what is in it — 9,000 of those is a directory you can only query,
+   * never browse. The slug leads so the files sort by subject; the id stays as
+   * a suffix because it is the primary key and must survive two captures with
+   * the same title on the same day.
+   */
+  rawFile(d: Date, id: string, ext: string, slug?: string) {
+    const stem = slug ? `${slug.slice(0, 60)}-${id.slice(-6)}` : id
+    return join(this.rawDir(d), `${stem}${ext}`)
   }
-  rawMetaFile(d: Date, id: string) {
-    return join(this.rawDir(d), `${id}.meta.json`)
+  rawMetaFile(d: Date, id: string, slug?: string) {
+    const stem = slug ? `${slug.slice(0, 60)}-${id.slice(-6)}` : id
+    return join(this.rawDir(d), `${stem}.meta.json`)
   }
 
   // ── TIER 2: curated ──────────────────────────────────────────────
