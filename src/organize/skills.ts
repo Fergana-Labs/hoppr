@@ -10,7 +10,7 @@ import { docId, upsertDoc } from '../db/docs.ts'
 import type { Db } from '../db/driver.ts'
 import { type LlmProvider, recordCall } from '../llm/index.ts'
 import { writeIfChanged } from '../store/atomic.ts'
-import { buildPage } from '../store/frontmatter.ts'
+import { buildPage, parsePage } from '../store/frontmatter.ts'
 import type { Layout } from '../store/layout.ts'
 import { clip, loadPrompt, render } from '../store/prompts.ts'
 import { promotionGate, writeResolver } from './skillify.ts'
@@ -339,6 +339,55 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 // ── review + install ────────────────────────────────────────────
+
+/**
+ * Adopt SKILL.md files that exist on disk with no index row.
+ *
+ * Two ways that happens and both are legitimate: the seed skills written at
+ * init, and a skill directory a person dropped in by hand. Either way the file
+ * is the truth and the row is bookkeeping, so the row gets created rather than
+ * the file being ignored.
+ *
+ * Adopted skills land `accepted`, not `proposed` — nobody needs to review a
+ * file they put there themselves — and `pinned`, so curation maintains their
+ * evidence links without rewriting the prose.
+ */
+export async function reconcileSkills(db: Db, l: Layout): Promise<number> {
+  const { readdir, readFile } = await import('node:fs/promises')
+  const { existsSync } = await import('node:fs')
+  if (!existsSync(l.skills)) return 0
+
+  const known = new Set(
+    db
+      .prepare<{ slug: string }>('SELECT slug FROM skills')
+      .all()
+      .map((r) => r.slug),
+  )
+  let adopted = 0
+  for (const entry of await readdir(l.skills, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || known.has(entry.name)) continue
+    const path = `${l.skills}/${entry.name}/SKILL.md`
+    if (!existsSync(path)) continue
+    const { data } = parsePage(await readFile(path, 'utf8').catch(() => ''))
+    const d = data as Record<string, unknown>
+    db.prepare(
+      `INSERT OR IGNORE INTO skills
+         (slug, name, description, path, state, evidence_count, confidence,
+          created, updated, pass_id, prompt_hash, pinned)
+       VALUES (:slug, :name, :desc, :path, 'accepted', 0, 1.0, :now, :now, 'seed', '', 1)`,
+    ).run({
+      slug: entry.name,
+      name: String(d.name ?? entry.name),
+      desc: String(d.description ?? '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+      path: l.rel(path),
+      now: Date.now(),
+    })
+    adopted++
+  }
+  return adopted
+}
 
 export function listSkills(db: Db, state?: SkillState): SkillRow[] {
   return db

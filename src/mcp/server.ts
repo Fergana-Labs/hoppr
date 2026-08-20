@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { Hoppr } from '../core/hoppr.ts'
+import { loadPrompt } from '../store/prompts.ts'
 import { listPages } from '../store/wiki.ts'
 import { runVfs } from './vfs.ts'
 
@@ -57,16 +58,27 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
       ),
   }
 
+  // The retrieval guide goes in `instructions`, which a client reads ONCE on
+  // connect rather than on every call. Telling an agent how to merge raw and
+  // curated evidence is the difference between a good store and a confident
+  // wrong answer out of one — and it is editable, at curated/prompts/retrieval.md.
+  const guide = await loadPrompt(defaultHoppr.layout, 'retrieval')
+    .then((p) => p.template)
+    .catch(() => '')
+
+  const orientation =
+    defaultHoppr.config.wiki.orientation || defaultHoppr.config.hopper.description || ''
+
+  const header = pinned
+    ? `hoppr '${defaultHoppr.name}'${orientation ? `: ${orientation}` : ''}`
+    : "hoppr holds one or more isolated knowledge stores ('hoppers'), each pointed at a " +
+      'different source: a folder of documents, or the transcripts of past AI coding ' +
+      'sessions. Call hoppr_list FIRST to see which hoppers exist and what each is for, ' +
+      'then pass that name to the other tools.'
+
   const server = new McpServer(
     { name: `hoppr${pinned ? `:${defaultHoppr.name}` : ''}`, version: '0.0.1' },
-    {
-      instructions: pinned
-        ? `hoppr '${defaultHoppr.name}': ${defaultHoppr.config.hopper.description || 'a curated knowledge store'}. Call hoppr_index to see what exists, hoppr_search to find things, hoppr_source for the original capture.`
-        : "hoppr holds one or more isolated knowledge stores ('hoppers'), each pointed at a " +
-          'different source: a folder of documents, or the transcripts of past AI coding ' +
-          'sessions. Call hoppr_list FIRST to see which hoppers exist and what each is for, ' +
-          'then pass that name to the other tools.',
-    },
+    { instructions: [header, guide].filter(Boolean).join('\n\n') },
   )
 
   if (!pinned) {

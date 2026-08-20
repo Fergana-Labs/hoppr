@@ -122,6 +122,11 @@ export function buildsPage(cfg: Parameters<typeof curationFor>[0], type: string)
 export function embeddingsEnabled(cfg: {
   hopper: { curation?: string; profile: Profile }
   embed: { provider: string }
+  retrieval?: { embeddings?: boolean }
 }): boolean {
+  // Three ways to say no, and any one of them wins: the preset, the explicit
+  // retrieval switch, and "no provider". Keeping it one predicate is what stops
+  // them from drifting into "configured on but silently off".
+  if (cfg.retrieval?.embeddings === false) return false
   return curationFor(cfg).embeddings && cfg.embed.provider !== 'none'
 }

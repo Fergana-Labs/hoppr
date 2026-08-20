@@ -4,6 +4,13 @@ export interface Arm {
   name: string
   weight: number
   candidates: Candidate[]
+  /**
+   * bm25 scores are unbounded NEGATIVE and better when lower; cosine distance
+   * is 0..2 and also better when lower. Rank-based fusion never has to know
+   * this, which is most of why it is the default — but any method that touches
+   * the raw numbers does, or it ranks the corpus backwards.
+   */
+  lowerIsBetter?: boolean
 }
 
 export interface FusedHit {
@@ -15,6 +22,66 @@ export interface FusedHit {
 
 export interface FuseOptions {
   k?: number
+}
+
+export type RerankMethod = 'rrf' | 'weighted' | 'none'
+
+/**
+ * Pick a fusion method.
+ *
+ * `rrf` is the default and should stay so; the alternatives exist because
+ * "which reranker" is a legitimate thing to want to change, not because they
+ * are usually better:
+ *
+ *   weighted — normalises each arm to 0..1 and blends. Tunable, and worse in a
+ *              specific way: the normalisation is computed per query from that
+ *              query's own score range, so a doc's contribution depends on
+ *              what else happened to match. Fine when one arm is known to be
+ *              stronger and you want to say so numerically.
+ *   none     — take the first arm as-is. Useful for debugging a ranking
+ *              complaint, and for a hoppr with no vector index where fusing
+ *              one arm with nothing is just overhead.
+ */
+export function fuse(arms: Arm[], method: RerankMethod, opts: FuseOptions = {}): FusedHit[] {
+  if (method === 'none') {
+    const first = arms.find((a) => a.candidates.length) ?? arms[0]
+    return (first?.candidates ?? []).map((c, i) => ({
+      docId: c.docId,
+      // Descending, and spaced so downstream boosts still discriminate.
+      score: 1 / (i + 1),
+      ranks: { [first?.name ?? 'keyword']: i + 1 },
+    }))
+  }
+  return method === 'weighted' ? weighted(arms) : rrf(arms, opts)
+}
+
+/**
+ * Min-max normalise each arm, then blend by weight.
+ *
+ * Arms are normalised INDEPENDENTLY because their scales are unrelated — bm25
+ * is unbounded negative, cosine distance is 0..2. An arm whose scores are all
+ * equal contributes a flat 1, not a division by zero.
+ */
+export function weighted(arms: Arm[]): FusedHit[] {
+  const acc = new Map<string, FusedHit>()
+  for (const arm of arms) {
+    const scores = arm.candidates.map((c) => c.score)
+    const lo = Math.min(...scores)
+    const hi = Math.max(...scores)
+    const span = hi - lo
+    arm.candidates.forEach((cand, i) => {
+      const raw = span === 0 ? 1 : (cand.score - lo) / span
+      const norm = arm.lowerIsBetter === false ? raw : 1 - raw
+      let hit = acc.get(cand.docId)
+      if (!hit) {
+        hit = { docId: cand.docId, score: 0, ranks: {} }
+        acc.set(cand.docId, hit)
+      }
+      hit.score += arm.weight * norm
+      hit.ranks[arm.name] = i + 1
+    })
+  }
+  return [...acc.values()].sort((a, b) => b.score - a.score)
 }
 
 /**

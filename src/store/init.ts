@@ -10,6 +10,7 @@ import { renderClaudeMd } from './claudemd.ts'
 import * as gitmod from './git.ts'
 import { GITIGNORE, Layout, storeDirs } from './layout.ts'
 import { ejectPrompts } from './prompts.ts'
+import { seedSkills } from './seed-skills.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -56,6 +57,7 @@ export async function initStore(root: string, cfg?: Config): Promise<InitResult>
   // Prompts are ejected so they are yours to edit; editing one re-stales
   // exactly what it produced, and the next pass regenerates it.
   await ejectPrompts(l)
+  await seedSkills(l, config)
 
   const hadGit = gitmod.isRepo(root)
   if (config.git.mode !== 'off') {

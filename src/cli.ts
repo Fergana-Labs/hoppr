@@ -399,23 +399,78 @@ program
 // ── setup / embed ─────────────────────────────────────────────────
 program
   .command('setup')
-  .description('download the local embedding model (explicit, never silent)')
-  .action(async () => {
-    const h = await ctx()
-    h.requireStore()
+  .description('find your agent logs, offer a hoppr for each, and fetch the embedding model')
+  .option('-y, --yes', 'assume yes — for scripts and CI')
+  .option('--skip-agents', 'do not offer hoppers for detected agent logs')
+  .action(async (o: { yes?: boolean; skipAgents?: boolean }) => {
+    const { findHarnesses, describeFindings, confirm } = await import('./onboard.ts')
+
+    if (!o.skipAgents) {
+      const found = await findHarnesses()
+      if (found.length === 0) {
+        console.log(c.dim('no agent logs found (Claude Code, Codex, opencode, openclaw)'))
+      } else {
+        console.log(c.bold('Agent history found on this machine:'))
+        for (const line of describeFindings(found)) console.log(`  ${line}`)
+        console.log()
+        // Say the cost before asking, not after. The default sync window is
+        // 30 days precisely because these numbers are large.
+        console.log(c.dim('  A hoppr indexes these locally. Curating them into pages costs model'))
+        console.log(c.dim('  calls — the first sync covers 30 days; --full backfills the rest.'))
+        console.log()
+
+        const { listHoppers } = await import('./store/registry.ts')
+        const existing = new Set((await listHoppers()).map((x) => x.source))
+        for (const f of found) {
+          const source = `agents:${f.id}`
+          if (existing.has(source)) {
+            console.log(`${c.dim('exists')}  ${f.id}`)
+            continue
+          }
+          const ok = await confirm(`  Create a hoppr for ${c.bold(f.id)}?`, { yes: o.yes })
+          if (!ok) continue
+          const { createHopper } = await import('./store/registry.ts')
+          const info = await createHopper({ name: f.id, source }).catch((e: Error) => {
+            console.log(c.yellow(`  skipped ${f.id}: ${e.message}`))
+            return undefined
+          })
+          if (!info) continue
+          const hh = await Hoppr.open({ root: info.root })
+          await initStore(info.root, hh.config)
+          hh.close()
+          console.log(`${c.green('created')} ${f.id}  ${c.dim(info.root)}`)
+        }
+        console.log()
+      }
+    }
+
+    // The embedding model: ~200MB, and it must never download silently.
+    const h = await ctx().catch(() => undefined)
+    if (!h?.exists) {
+      console.log(c.dim('no hoppr selected — skipping the embedding model'))
+      console.log(c.dim('  hoppr init          create one here'))
+      console.log(c.dim('  hoppr -H <name> setup   fetch the model for a named hoppr'))
+      return
+    }
     const e = await h.embedder()
     if (!e) {
       console.log(c.yellow('no embedding provider configured'))
       console.log(c.dim('  keyword search works; set [embed] provider to enable semantic search'))
       return
     }
-    // A ~35MB model download should never surprise someone mid-`hoppr add`.
+    // A ~200MB model download should never surprise someone mid-`hoppr add`.
     console.log(`fetching ${c.bold(e.model)} (${e.dim} dims)…`)
     await e.warmup?.((msg) => process.stdout.write(`\r  ${c.dim(msg.padEnd(60))}`))
     process.stdout.write('\n')
     const t0 = Date.now()
     await e.embed(['warmup'])
     console.log(`${c.green('ready')}  first embedding in ${Date.now() - t0}ms`)
+
+    const { mcpStatus } = await import('./mcp/status.ts')
+    if ((await mcpStatus()).every((x) => !x.present)) {
+      console.log()
+      console.log(c.dim('Next: `hoppr mcp install` so your agents can reach this.'))
+    }
   })
 
 program
@@ -1164,8 +1219,12 @@ skillsCmd
   .option('--state <state>')
   .action(async (o: { state?: string }) => {
     const h = await ctx()
-    const { listSkills } = await import('./organize/skills.ts')
-    const rows = listSkills(await h.db(), o.state as never)
+    const { listSkills, reconcileSkills } = await import('./organize/skills.ts')
+    const db = await h.db()
+    // Files on disk are the truth; the index row is bookkeeping. Adopt any
+    // SKILL.md that has no row — seeds written at init, or one dropped in by hand.
+    await reconcileSkills(db, h.layout)
+    const rows = listSkills(db, o.state as never)
     if (wantJson()) return printJson(rows)
     if (rows.length === 0) return console.log(c.dim('no skills yet — `hoppr deep` mines them'))
     for (const r of rows) {

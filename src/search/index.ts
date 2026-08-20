@@ -1,7 +1,7 @@
 import type { Config } from '../config/schema.ts'
 import type { Db } from '../db/driver.ts'
 import { buildFilters, type Candidate, filterOnly, ftsSearch } from './fts.ts'
-import { type Arm, applyBoosts, rrf } from './fuse.ts'
+import { type Arm, applyBoosts, fuse } from './fuse.ts'
 import { type ParsedQuery, parseQuery } from './query.ts'
 import { snippetFor } from './snippet.ts'
 import { vectorSearch } from './vector.ts'
@@ -74,21 +74,25 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
     if (mode !== 'vec') {
       arms.push({
         name: 'fts',
-        weight: 1,
+        weight: cfg.retrieval.rerank.weights.keyword,
+        lowerIsBetter: true, // bm25
         candidates: ftsSearch(db, parsed.text, parsed.filters, k),
       })
     }
     if (mode !== 'fts' && opts.queryVector) {
       arms.push({
         name: 'vec',
-        weight: 1,
+        weight: cfg.retrieval.rerank.weights.vector,
+        lowerIsBetter: true, // cosine DISTANCE
         candidates: vectorSearch(db, opts.queryVector, parsed.filters, k),
       })
     }
   }
 
+  // `[retrieval.rerank] method` picks the fusion; `rrf_k` stays honoured so an
+  // existing config keeps its tuning.
   const fused = parsed.text
-    ? rrf(arms, { k: cfg.search.rrf_k })
+    ? fuse(arms, cfg.retrieval.rerank.method, { k: cfg.retrieval.rerank.k ?? cfg.search.rrf_k })
     : filterOnly(db, parsed.filters, k).map((c: Candidate) => ({
         docId: c.docId,
         score: 1 / (1 + c.score),

@@ -165,16 +165,25 @@ const DEFAULT_EXCLUDES = [
  */
 export async function extractFileText(path: string, ctx?: ConnectorContext): Promise<string> {
   const ext = extname(path).toLowerCase()
+  // Every expensive extractor is individually switchable. Off means the work
+  // never happens, not that it happens and is discarded.
+  const on = (ctx?.config.extract as Record<string, boolean> | undefined) ?? {}
+  const enabled = (key: string) => on[key] !== false
   if (IMAGE_EXTS.includes(ext)) {
+    if (!enabled('ocr') && !enabled('image_llm')) {
+      return `[image: ${basename(path)}]\n\nImage extraction is disabled. Indexed by name and path.`
+    }
     const { describeImage } = await import('../intake/extract/image.ts')
-    const r = await describeImage(path, await ctx?.llm?.())
+    const r = await describeImage(path, enabled('image_llm') ? await ctx?.llm?.() : undefined, {
+      ocr: enabled('ocr'),
+    })
     // Name-only beats dropping it: you can still find the file by filename,
     // and a later sync with a provider configured fills in the rest.
     return r.described
       ? r.text
       : `[image: ${basename(path)}]\n\nNo vision-capable model configured — indexed by name and path only.`
   }
-  if (OFFICE_EXTS.includes(ext)) {
+  if (OFFICE_EXTS.includes(ext) && enabled('office')) {
     const { extractOfficeText } = await import('../intake/extract/office.ts')
     const text = await extractOfficeText(path)
     if (text.trim().length >= 20) return text
@@ -185,10 +194,13 @@ export async function extractFileText(path: string, ctx?: ConnectorContext): Pro
     // rather than the file just never appearing.
     return `[${ext.slice(1)}: ${basename(path)}]\n\nPre-2007 binary Office format — not extractable. Re-save as ${ext}x to index its text.`
   }
-  if (ext === '.pdf') {
+  if (ext === '.pdf' && enabled('pdf')) {
     const { extractPdfText } = await import('../intake/extract/pdf.ts')
     const text = await extractPdfText(path)
     if (text.length >= 40) return text
+    if (!enabled('pdf_ocr')) {
+      return `[PDF: ${basename(path)}]\n\nNo extractable text layer. Indexed by name and path.`
+    }
     // No text layer means a scan: the file is text to a human and opaque to
     // every extractor. Rasterise and OCR it rather than indexing a filename.
     const { ocrPdf } = await import('../intake/extract/ocr.ts')

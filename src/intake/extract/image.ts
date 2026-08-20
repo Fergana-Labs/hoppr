@@ -46,14 +46,17 @@ export interface ImageExtraction {
 export async function describeImage(
   path: string,
   llm: LlmProvider | undefined,
-  maxBytes = 8 * 1024 * 1024,
+  opts: { ocr?: boolean; maxBytes?: number } = {},
 ): Promise<ImageExtraction> {
+  const maxBytes = opts.maxBytes ?? 8 * 1024 * 1024
   const mediaType = imageMediaType(path)
   if (!mediaType) return { text: '', described: false }
 
   // 1. OCR first: free, local, and the half that has to be verbatim.
-  const { ocrImage } = await import('./ocr.ts')
-  const ocr = await ocrImage(path)
+  const ocr =
+    opts.ocr === false
+      ? { text: '', confidence: 0, available: false }
+      : await (await import('./ocr.ts')).ocrImage(path)
   // Tesseract returns noise at low confidence on images that hold no text.
   const ocrText = ocr.confidence >= 40 && ocr.text.length >= 8 ? ocr.text : ''
 

@@ -65,3 +65,80 @@ describe('curation presets', () => {
     expect(curationFor({ hopper: { profile: 'agents' } })).toBe(PRESETS.agents)
   })
 })
+
+describe('config surface', () => {
+  it('ships a default config that validates against the schema', async () => {
+    // The ejected TOML is what people read to learn what is configurable. It
+    // had drifted: documenting `[store] scope`, removed sessions earlier, and
+    // none of the retrieval or graph sections that actually exist.
+    const { parse } = await import('smol-toml')
+    const { readFile } = await import('node:fs/promises')
+    const { ConfigSchema } = await import('../src/config/schema.ts')
+    const raw = parse(await readFile('assets/hoppr.default.toml', 'utf8'))
+    expect(ConfigSchema.safeParse(raw).success).toBe(true)
+  })
+
+  it('documents every top-level section the schema defines', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { defaults } = await import('../src/config/schema.ts')
+    const toml = await readFile('assets/hoppr.default.toml', 'utf8')
+    // `schema`, `connectors` and `integrations` are user-defined tables with
+    // nothing meaningful to show as a default.
+    const skip = new Set(['schema', 'connectors', 'integrations', 'views', 'index'])
+    for (const section of Object.keys(defaults())) {
+      if (skip.has(section)) continue
+      // `[tables]` is a record of named tables, so it only ever appears in the
+      // dotted form `[tables.tags]`. Accept either.
+      const present = toml.includes(`[${section}]`) || toml.includes(`[${section}.`)
+      expect(present, `[${section}] missing from the shipped config`).toBe(true)
+    }
+  })
+})
+
+describe('rerank methods', () => {
+  it('ranks bm25 correctly under weighted fusion, where lower is better', async () => {
+    const { fuse } = await import('../src/search/fuse.ts')
+    // bm25 returns unbounded NEGATIVES and cosine returns distances: both are
+    // better when lower. A naive min-max normalisation ranks the corpus
+    // backwards, and rank-based fusion never has to know that.
+    const arms = [
+      {
+        name: 'fts',
+        weight: 1,
+        lowerIsBetter: true,
+        candidates: [
+          { docId: 'best', rowid: 1, score: -9 },
+          { docId: 'worst', rowid: 2, score: -1 },
+        ],
+      },
+    ]
+    expect(fuse(arms, 'weighted')[0]!.docId).toBe('best')
+    expect(fuse(arms, 'rrf')[0]!.docId).toBe('best')
+    expect(fuse(arms, 'none')[0]!.docId).toBe('best')
+  })
+
+  it('none takes the first non-empty arm and preserves its order', async () => {
+    const { fuse } = await import('../src/search/fuse.ts')
+    const arms = [
+      { name: 'fts', weight: 1, candidates: [] },
+      {
+        name: 'vec',
+        weight: 1,
+        candidates: [
+          { docId: 'a', rowid: 1, score: 0.1 },
+          { docId: 'b', rowid: 2, score: 0.2 },
+        ],
+      },
+    ]
+    expect(fuse(arms, 'none').map((h) => h.docId)).toEqual(['a', 'b'])
+  })
+})
+
+describe('seed skills', () => {
+  it('ships the two that mining cannot discover', async () => {
+    const { listAssets } = await import('../src/core/assets.ts')
+    // Mining finds what you do OFTEN. It cannot find what you never wrote
+    // down, and in week one it has nothing to cluster at all.
+    expect((await listAssets('skills')).sort()).toEqual(['comms-preferences', 'working-agreements'])
+  })
+})

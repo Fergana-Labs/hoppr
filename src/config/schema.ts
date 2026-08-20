@@ -70,6 +70,22 @@ export const ConfigSchema = z.object({
       /** index.md is generated deterministically, not written by the model. */
       generate_index: z.boolean().default(true),
       claude_md: z.boolean().default(true),
+      /**
+       * Which page types this hoppr may create. `source` and `concept` are
+       * implemented; the others are in the layout spec but not built, so
+       * listing them here promises pages that never appear.
+       */
+      page_types: z.array(z.string()).default(['source', 'concept']),
+      /**
+       * One paragraph telling an agent what this corpus IS and what it is for,
+       * written into the wiki's front door and the MCP server's instructions.
+       *
+       * This is the highest-leverage string in the config: an agent that knows
+       * "these are support transcripts from 2024-25, use them for policy
+       * precedent" retrieves differently from one that knows only "documents".
+       * Empty ⇒ generated from the source and profile.
+       */
+      orientation: z.string().default(''),
     })
     .prefault({}),
 
@@ -142,12 +158,123 @@ export const ConfigSchema = z.object({
       /** Propose merges; never rewrite user content without review. */
       auto_merge: z.boolean().default(false),
       dedup_threshold: z.number().min(0).max(1).default(0.93),
+      /**
+       * Curated paths the agent must never rewrite, as globs relative to
+       * `curated/`.
+       *
+       * Hand-editing a page already pins it — the agent notices and backs off.
+       * This is the version you set BEFORE writing anything, so a page you
+       * intend to own is protected from the first pass rather than from the
+       * first time you happen to edit it.
+       */
+      protect: z.array(z.string()).default([]),
       budget: z
         .object({
           max_usd_per_day: z.number().nonnegative().default(2.0),
           max_calls_per_run: z.number().int().positive().default(200),
         })
         .prefault({}),
+    })
+    .prefault({}),
+
+  /**
+   * What gets INDEXED, and how a query is answered.
+   *
+   * Split from [search] because these are two different decisions: what you
+   * pay to build, and how you rank what you built. Turning an arm off here
+   * means it is never populated, not merely never queried.
+   */
+  retrieval: z
+    .object({
+      /**
+       * BM25. Not a toggle: it is free, it is the floor every other arm falls
+       * back to, and a store you cannot grep is not a store.
+       */
+      keyword: z.literal(true).default(true),
+      /** Vector search. Costs a model download; nothing leaves the machine. */
+      embeddings: z.boolean().default(true),
+      /** Typed entities and relations. See [graph]. */
+      graph: z.boolean().default(false),
+      /** Per-extractor toggles — the expensive parts of "index this folder". */
+      extract: z
+        .object({
+          /** Local OCR over images. Free, ~800ms each. */
+          ocr: z.boolean().default(true),
+          /** A vision model describing what an image SHOWS. Costs per image. */
+          image_llm: z.boolean().default(true),
+          /** PDF text layers. */
+          pdf: z.boolean().default(true),
+          /** Rasterise + OCR a PDF with no text layer. */
+          pdf_ocr: z.boolean().default(true),
+          /** Word, Excel, PowerPoint. */
+          office: z.boolean().default(true),
+        })
+        .prefault({}),
+      rerank: z
+        .object({
+          /**
+           * rrf     — rank-based fusion. Needs no calibration between bm25's
+           *           unbounded negatives and cosine's 0..2, which is why it
+           *           is the default.
+           * weighted— normalise each arm to 0..1 and blend. Tunable, but the
+           *           normalisation is per-query and therefore unstable.
+           * none    — keyword only, arms not fused. Cheapest to reason about.
+           */
+          method: z.enum(['rrf', 'weighted', 'none']).default('rrf'),
+          /** RRF's damping constant. Larger ⇒ flatter, more democratic. */
+          k: z.number().int().positive().default(60),
+          /** weighted only: relative arm weights. */
+          weights: z
+            .object({ keyword: z.number().default(1), vector: z.number().default(1) })
+            .prefault({}),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
+
+  /**
+   * Typed entities and relations over the corpus.
+   *
+   * Off by default and schema-driven on purpose: a relation vocabulary is
+   * domain-specific, and inventing one for a folder of papers produces
+   * confident nonsense. Define the types you actually have.
+   */
+  graph: z
+    .object({
+      /**
+       * These are PROMPTS, not validation rules.
+       *
+       * A type's `description` is handed to the model verbatim as the
+       * definition of what counts. That is where the accuracy comes from:
+       * "person" retrieves everything and nothing, while "person — a named
+       * individual who participated, not an author cited in passing" is a
+       * decision procedure. Write them as instructions to a careful reader.
+       *
+       * A bare string is shorthand for a type with no description, which works
+       * and is worse.
+       */
+      entity_types: z
+        .array(
+          z.union([
+            z.string(),
+            z.object({ name: z.string(), description: z.string().default('') }),
+          ]),
+        )
+        .default(['person', 'org', 'project', 'tool', 'concept']),
+      /** `subject -> predicate -> object`, restricted to the types above. */
+      relations: z
+        .array(
+          z.object({
+            name: z.string(),
+            from: z.array(z.string()).default([]),
+            to: z.array(z.string()).default([]),
+            /** When this relation applies — again, given to the model verbatim. */
+            description: z.string().default(''),
+          }),
+        )
+        .default([]),
+      /** Skip an entity seen fewer times than this — a hapax is noise. */
+      min_mentions: z.number().int().positive().default(2),
     })
     .prefault({}),
 
@@ -176,6 +303,27 @@ export const ConfigSchema = z.object({
       /** Never true by default: a skill changes how every future session behaves. */
       auto_install: z.boolean().default(false),
       default_target: z.string().default('~/.claude/skills'),
+      /**
+       * auto      — cluster transcripts and propose whatever recurs.
+       * targeted  — only mine the subjects named in `targets`.
+       * off       — never mine; hand-written skills still install.
+       *
+       * `targeted` exists because auto-mining a corpus you know well mostly
+       * re-proposes things you already know. Naming the gaps is more useful
+       * than being told what you do most often.
+       */
+      mine: z.enum(['auto', 'targeted', 'off']).default('auto'),
+      /** Subjects to look for in `targeted` mode, in plain language. */
+      targets: z.array(z.string()).default([]),
+      /**
+       * Skills seeded on init, as slugs from the packaged set. These are the
+       * ones worth having before any mining has happened — they encode how
+       * YOU work, which no amount of transcript clustering will discover in
+       * the first week.
+       */
+      seed: z.array(z.string()).default(['comms-preferences', 'working-agreements']),
+      /** Re-propose an update once a skill has this many NEW supporting sessions. */
+      refresh_after: z.number().int().positive().default(5),
     })
     .prefault({}),
 

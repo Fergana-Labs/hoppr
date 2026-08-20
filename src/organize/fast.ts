@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Config } from '../config/schema.ts'
-import { type IgnoreRule, isIgnored, loadIgnoreRules } from '../connectors/ignore.ts'
+import { type IgnoreRule, isIgnored, loadIgnoreRules, parseIgnore } from '../connectors/ignore.ts'
 import { HopprError } from '../core/errors.ts'
 import { isoDate } from '../core/ids.ts'
 import { curationFor } from '../core/profiles.ts'
@@ -318,6 +318,25 @@ function claim(db: Db, cfg: Config, limit?: number): Candidate[] {
   return keep
 }
 
+/**
+ * Curated paths the agent must not rewrite. Globs are relative to `curated/`,
+ * the same shape as .hopprignore so there is one syntax to learn.
+ */
+const protectCache = new Map<string, IgnoreRule[]>()
+export function isProtected(cfg: Config, relPath: string): boolean {
+  const pats = cfg.curate.protect
+  if (!pats.length) return false
+  const key = pats.join('\n')
+  let rules = protectCache.get(key)
+  if (!rules) {
+    rules = parseIgnore(key)
+    protectCache.set(key, rules)
+  }
+  // Paths arrive as `curated/wiki/sources/x.md`; the globs are written
+  // relative to curated/, which is the part a person thinks in.
+  return isIgnored(relPath.replace(/^curated\//, ''), rules)
+}
+
 /** Cached per source root: read once per process, not once per batch. */
 const noCurateCache = new Map<string, IgnoreRule[]>()
 function noCurateRules(cfg: Config): IgnoreRule[] {
@@ -384,8 +403,13 @@ async function writeSourcePage(
     ? await wikiMod.readPage(l, 'source', prior.slug)
     : await wikiMod.readPage(l, 'source', slug)
 
-  if (existing?.pinned) {
-    // A human wrote this. Keep the prose; the evidence link is still ours to
+  // `[curate] protect` is the pin you set BEFORE the page exists, so a page
+  // you intend to own is safe from the first pass rather than from the first
+  // time you happen to edit it.
+  const protectedPath = isProtected(cfg, l.rel(l.pageFile('source', existing?.slug ?? slug)))
+
+  if (existing?.pinned || protectedPath) {
+    // A human owns this. Keep the prose; the evidence link is still ours to
     // maintain, but nothing else on the page gets touched.
     db.prepare('UPDATE raw SET curate_stale = 0, curate_hash = content_hash WHERE id = :id').run({
       id: cand.id,
