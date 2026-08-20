@@ -110,6 +110,13 @@ export function renderTableDef(def: TableDef): string {
   return `# Extraction table. Edit freely — changing a column marks affected rows
 # stale, and the next curate pass backfills just that column rather than
 # re-extracting everything you already have.
+#
+# \`match\` decides WHAT the extractor reads, and it matters more than it looks:
+#   scope:raw    the original capture — verbatim. Use this for facts: dates,
+#                names, amounts, exact wording.
+#   kind:source  the curated SUMMARY of a capture. Shorter and cheaper, but a
+#                summary has already dropped the detail a table wants. A date
+#                that was in the source comes back "Unknown" from here.
 ${head.join('\n')}
 ${cols.join('\n')}
 `

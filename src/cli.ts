@@ -974,7 +974,7 @@ tablesCmd.command('list', { isDefault: true }).action(async () => {
 tablesCmd
   .command('new <name>')
   .description('create a table definition (a starter you then edit)')
-  .option('--match <filter>', 'which captures feed it', 'scope:all')
+  .option('--match <filter>', 'which captures feed it — scope:raw reads the original', 'scope:raw')
   .action(async (name: string, o: { match: string }) => {
     const h = await ctx()
     const { saveTable } = await import('./tables/def.ts')
