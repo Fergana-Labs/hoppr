@@ -344,7 +344,16 @@ async function upsertCapture(
   // connectors store normalized session snapshots here.
   if (existing) {
     const { writeAtomic } = await import('../store/atomic.ts')
-    await writeAtomic(l.abs(existing.path), item.body)
+    // Write the same FORM the record was created in. This wrote item.body
+    // unconditionally, so a session captured as trajectory and then updated —
+    // which is every long session, because they are pulled in chunks — had its
+    // structure overwritten with prose. The file kept the .jsonl name, which is
+    // how it stayed invisible.
+    const nextBytes =
+      existing.path.endsWith('.jsonl') && item.structured?.content
+        ? item.structured.content
+        : item.body
+    await writeAtomic(l.abs(existing.path), nextBytes)
     db.prepare(
       `UPDATE raw SET text = :text, content_hash = :hash, bytes = :bytes,
          captured = :now, partial = :partial, title = :title, curate_stale = 1
@@ -353,7 +362,7 @@ async function upsertCapture(
       id: existing.id,
       text: item.body,
       hash,
-      bytes: Buffer.byteLength(item.body),
+      bytes: Buffer.byteLength(nextBytes),
       now: item.updatedAt.getTime(),
       partial: item.partial ? 1 : 0,
       title: item.title ?? null,
@@ -362,12 +371,16 @@ async function upsertCapture(
     return 'updated'
   }
 
+  // Store the STRUCTURE, index the prose. The prose is derived and cheap to
+  // regenerate; the structure is not recoverable once thrown away, and the
+  // harness that could regenerate it deletes its own logs.
+  const structured = item.structured?.content
   const rec = await rawStore.append(l, {
-    bytes: item.body,
+    bytes: structured ?? item.body,
     kind: item.kind,
     source: `connector:${connectorId}`,
-    mediaType: 'text/markdown',
-    ext: '.md',
+    mediaType: structured ? 'application/x-ndjson' : 'text/markdown',
+    ext: structured ? `.${item.structured?.format ?? 'trajectory'}.jsonl` : '.md',
     title: item.title,
     externalId: item.externalId,
     created: item.createdAt,
@@ -379,24 +392,10 @@ async function upsertCapture(
     partial: item.partial,
   })
 
-  // The structured form sits beside the readable one, sharing its name. The
-  // markdown is what gets indexed; this is what survives the harness changing
-  // its format, and it is the only copy that still says which tool result came
-  // from which call.
-  if (item.structured?.content) {
-    const { writeIfChanged } = await import('../store/atomic.ts')
-    await writeIfChanged(
-      l.abs(rec.path).replace(/\.md$/, `.${item.structured.format}.jsonl`),
-      item.structured.content.endsWith('\n')
-        ? item.structured.content
-        : `${item.structured.content}\n`,
-    )
-  }
-
   db.prepare(
     `INSERT INTO raw (id,path,kind,source,external_id,media_type,title,bytes,content_hash,
                       created,captured,file_mtime_ms,text,origin,partial,raw_mode)
-     VALUES (:id,:path,:kind,:source,:ext,'text/markdown',:title,:bytes,:hash,
+     VALUES (:id,:path,:kind,:source,:ext,:media,:title,:bytes,:hash,
              :created,:captured,0,:text,:origin,:partial,'copy')`,
   ).run({
     id: rec.id,
@@ -405,6 +404,7 @@ async function upsertCapture(
     source: `connector:${connectorId}`,
     ext: item.externalId,
     title: item.title ?? null,
+    media: structured ? 'application/x-ndjson' : 'text/markdown',
     bytes: rec.bytes,
     hash,
     created: item.createdAt.getTime(),

@@ -543,6 +543,18 @@ export class Hoppr {
    * the extracted text — not the bytes. `hoppr get` on a screenshot used to
    * dump a PNG to the terminal; the bytes are what `hoppr source` is for.
    */
+  /** The captured bytes exactly as stored — ground truth, never the rendering. */
+  async readRawBytes(rec: RawRecord): Promise<string> {
+    const external = (rec.origin as { external_path?: string } | undefined)?.external_path
+    const { readFile } = await import('node:fs/promises')
+    if (external) {
+      return readFile(external, 'utf8').catch(() => `(source file is no longer at ${external})`)
+    }
+    return readFile(this.layout.abs(rec.path), 'utf8').catch(
+      () => `(capture is no longer at ${rec.path})`,
+    )
+  }
+
   async readRawText(rec: RawRecord): Promise<string> {
     // The index already holds the extraction, so prefer it over re-reading a
     // file we would only have to extract again.

@@ -305,13 +305,16 @@ program
 
 program
   .command('source')
-  .description('print the captured source content')
+  .description('print the captured bytes — the trajectory records, not the prose')
   .argument('<id>')
   .action(async (id: string) => {
     const h = await ctx()
     const rec = await h.resolveRaw(id)
     if (!rec) throw HopprError.notFound(`no capture matching '${id}'`)
-    process.stdout.write(await h.readRawText(rec))
+    // The FILE, deliberately: `get` shows the readable rendering, and this is
+    // the command for ground truth — the structured record with its tool-call
+    // ids and timestamps, which is the whole reason it is what we store.
+    process.stdout.write(await h.readRawBytes(rec))
   })
 
 // ── search ────────────────────────────────────────────────────────

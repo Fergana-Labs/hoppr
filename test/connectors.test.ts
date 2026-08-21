@@ -459,3 +459,96 @@ describe('sync pipeline', () => {
     }
   })
 })
+
+describe('trajectory storage', () => {
+  it('keeps the structure a rendering throws away', async () => {
+    const { toTrajectory } = await import('../src/connectors/trajectory.ts')
+    // A minimal claude-code transcript with one tool call and its result.
+    const lines = [
+      {
+        type: 'user',
+        message: { role: 'user', content: 'run the tests' },
+        timestamp: '2026-03-04T10:00:00Z',
+        sessionId: 's1',
+        cwd: '/tmp',
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'toolu_abc', name: 'Bash', input: { command: 'npm test' } },
+          ],
+        },
+        timestamp: '2026-03-04T10:00:01Z',
+        sessionId: 's1',
+      },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_abc', content: 'FAIL 3 tests' }],
+        },
+        timestamp: '2026-03-04T10:00:02Z',
+        sessionId: 's1',
+      },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n')
+
+    const t = await toTrajectory('claude-code', lines)
+    if (!t) return // optional dependency absent
+    const records = t.jsonl
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+
+    // The whole reason the structured form is what gets stored: prose cannot
+    // say WHICH result came from WHICH call.
+    const tool = records.find((r) => r.role === 'tool')
+    expect(tool?.tool_call_id).toBe('toolu_abc')
+    expect(records.some((r) => r.role === 'assistant' && r.tool_calls)).toBe(true)
+    expect(records.filter((r) => r.timestamp).length).toBeGreaterThan(0)
+  })
+
+  it('never truncates a tool result at capture', async () => {
+    const { toTrajectory } = await import('../src/connectors/trajectory.ts')
+    // 400 chars was the old cap, and a failing command's output is exactly
+    // what runs past it.
+    const big = 'E'.repeat(50_000)
+    const lines = [
+      {
+        type: 'user',
+        message: { role: 'user', content: 'go' },
+        timestamp: '2026-03-04T10:00:00Z',
+        sessionId: 's',
+        cwd: '/tmp',
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'toolu_x', name: 'Bash', input: {} }],
+        },
+        timestamp: '2026-03-04T10:00:01Z',
+        sessionId: 's',
+      },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: big }],
+        },
+        timestamp: '2026-03-04T10:00:02Z',
+        sessionId: 's',
+      },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n')
+
+    const t = await toTrajectory('claude-code', lines)
+    if (!t) return
+    expect(t.truncated).toBe(0)
+    expect(t.jsonl).toContain('E'.repeat(10_000))
+  })
+})
