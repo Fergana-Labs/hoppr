@@ -74,8 +74,8 @@ hoppr sync                                # pull from the configured source
 hoppr sync --since 7d | --full | --dry-run
 ```
 
-`hoppr ingest` is an alias of `hoppr add`. Anything dropped in `<store>/inbox/` is captured by
-the daemon and the file is consumed.
+`hoppr ingest` is an alias of `hoppr add`. For a folder hoppr you rarely need either —
+putting a file in the folder is the same thing, and the daemon picks it up.
 
 ## Finding things
 

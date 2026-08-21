@@ -96,7 +96,6 @@ max_calls_per_run = 200
 
 # ── intake ────────────────────────────────────────────────────────────
 [intake]
-inbox = "inbox"
 redact = true                    # scrub secrets BEFORE anything is written
 # STORAGE limits for agent transcripts, applied once at capture and therefore
 # permanent. The tool-result cap was 400 chars, which threw away the part skill

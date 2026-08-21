@@ -314,3 +314,45 @@ describe('no two knobs for one thing', () => {
     expect(dead, `nothing calls: ${dead.join(', ')}`).toEqual([])
   })
 })
+
+describe('the shipped config has no keys the schema dropped', () => {
+  it('every key in hoppr.default.toml still exists', async () => {
+    // The mirror of "every schema key is documented". zod STRIPS unknown keys
+    // rather than rejecting them, so a setting removed from the schema keeps
+    // sitting in the shipped config looking real — `inbox = "inbox"` survived
+    // the inbox being deleted.
+    const { parse } = await import('smol-toml')
+    const { readFile } = await import('node:fs/promises')
+    const { ConfigSchema } = await import('../src/config/schema.ts')
+    const raw = parse(await readFile('assets/hoppr.default.toml', 'utf8')) as Record<
+      string,
+      Record<string, unknown>
+    >
+    // Read the SCHEMA, not defaults(): an optional key with no default is a
+    // real setting that simply does not appear in the defaults object.
+    const shapeOf = (schema: unknown): Record<string, unknown> => {
+      let node = schema as { def?: { innerType?: unknown; shape?: unknown; type?: string } }
+      for (let i = 0; i < 6 && node?.def && !node.def.shape; i++) {
+        node = (node.def.innerType ?? node.def) as typeof node
+      }
+      return ((node?.def?.shape ?? {}) as Record<string, unknown>) ?? {}
+    }
+    const top = shapeOf(ConfigSchema)
+    const known: Record<string, Record<string, unknown>> = {}
+    for (const [k, v] of Object.entries(top)) known[k] = shapeOf(v)
+    const stale: string[] = []
+    for (const [section, val] of Object.entries(raw)) {
+      if (!(section in known)) {
+        stale.push(section)
+        continue
+      }
+      if (!val || typeof val !== 'object') continue
+      for (const key of Object.keys(val)) {
+        // Record-typed sections (tables, connectors) take arbitrary names.
+        if (['tables', 'connectors', 'integrations', 'schema'].includes(section)) continue
+        if (!(key in (known[section] ?? {}))) stale.push(`${section}.${key}`)
+      }
+    }
+    expect(stale, `config keys the schema no longer has: ${stale.join(', ')}`).toEqual([])
+  })
+})
