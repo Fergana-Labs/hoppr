@@ -240,6 +240,27 @@ program
         running = await startDaemonDetached().catch(() => undefined)
       }
 
+      // Offer to tell the agent files here that this store exists. A store
+      // nobody knows about gets used by nobody, and CLAUDE.md / AGENTS.md are
+      // already where a coding agent looks for standing instructions.
+      const { agentFilesNear, hopprBlock, annotateAgentFile } = await import('./onboard-agents.ts')
+      const agentFiles = agentFilesNear(process.cwd())
+      if (agentFiles.length > 0) {
+        const { confirm } = await import('./onboard.ts')
+        const names = agentFiles.map((f) => f.replace(`${process.cwd()}/`, '')).join(', ')
+        console.log()
+        console.log(c.dim(`  found ${names}`))
+        if (o.yes || (await confirm('  Add a note there telling agents to search this?'))) {
+          const { loadConfig: lc } = await import('./config/load.ts')
+          const { config: cfg0 } = await lc({ root })
+          const block = hopprBlock(name, root, cfg0.hopper.description)
+          for (const f of agentFiles) {
+            const r = await annotateAgentFile(f, block).catch(() => undefined)
+            if (r) console.log(`  ${c.green(r.outcome)} ${c.dim(r.path)}`)
+          }
+        }
+      }
+
       console.log()
       console.log(`  ${c.cyan('hoppr search "…"')}   ${c.dim('search what you just indexed')}`)
       if (running) {
