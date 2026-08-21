@@ -232,8 +232,8 @@ export async function syncOne(
 /**
  * Drop reference rows whose file is gone.
  *
- * Only reference rows: a copy-mode capture owns its bytes and stays valid even
- * after the upstream harness rotates the original away.
+ * Only reference rows: a copy-mode capture owns its content and stays valid
+ * even if the upstream owner changes or removes the original.
  */
 function pruneMissingReferences(db: Db, connectorId: string, sources: ConnectorSource[]): number {
   const live = new Set(sources.map((s) => s.key))
@@ -338,8 +338,8 @@ async function upsertCapture(
   }
 
   // ── copy mode ────────────────────────────────────────────────────
-  // Used where the upstream owner rotates the originals (agent harnesses), so
-  // a reference would silently rot.
+  // Used where the upstream owner may change or remove the original. Agent
+  // connectors store normalized session snapshots here.
   if (existing) {
     const { writeAtomic } = await import('../store/atomic.ts')
     await writeAtomic(l.abs(existing.path), item.body)

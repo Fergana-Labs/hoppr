@@ -49,7 +49,7 @@ describe('init', () => {
 describe('CLAUDE.md', () => {
   it('documents the one rule and the wiki contract', () => {
     const md = renderClaudeMd(defaults())
-    expect(md).toContain('NEVER modify or delete anything here')
+    expect(md).toContain('NEVER modify or delete through hoppr')
     expect(md).toContain('curated/wiki/index.md')
     expect(md).toContain('[[wikilinks]]')
     expect(md).toContain('confidence: high')

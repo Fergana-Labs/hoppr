@@ -6,7 +6,7 @@ The default workflow starts in a directory you already have:
 cd <folder>
 hoppr init
 hoppr index
-hoppr query "what you are looking for"
+hoppr search "what you are looking for"
 ```
 
 `hoppr init` creates `<folder>/.hoppr/` and uses the surrounding folder as its source.
@@ -81,7 +81,7 @@ the daemon and the file is consumed.
 
 ```bash
 hoppr search "papers that disagree about scaling laws"
-hoppr query  "..."                         # alias
+hoppr query  "..."                         # backward-compatible alias
 ```
 
 | option | meaning |
@@ -92,11 +92,11 @@ hoppr query  "..."                         # alias
 | `-n, --limit <n>` | how many hits |
 | `--explain` | per-arm ranks and the boosts applied |
 
-Filters also work inline: `hoppr query "rrf tag:search project:hoppr since:7d"`.
+Filters also work inline: `hoppr search "rrf tag:search project:hoppr since:7d"`.
 
 ```bash
 hoppr get <id> [--meta]      # one capture or page (id prefix is enough)
-hoppr source <id>            # the original bytes, unmodified
+hoppr source <id>            # captured source content
 hoppr related <id> [-n]      # vector neighbours plus wiki backlinks
 hoppr ls [-n] [--kind]       # newest captures first
 hoppr catalog [--rebuild]    # the wiki catalog

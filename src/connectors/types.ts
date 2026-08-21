@@ -13,7 +13,7 @@ export interface IngestCandidate {
   externalId: string
   kind: RawKind
   title?: string
-  /** Rendered, human-readable body. The original bytes are archived separately. */
+  /** Rendered, human-readable body stored as the durable capture. */
   body: string
   createdAt: Date
   updatedAt: Date

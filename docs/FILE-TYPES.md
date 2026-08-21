@@ -77,9 +77,11 @@ folder you want to query is maintained by a coding harness rather than by you.
 | `opencode` | `~/.local/share/opencode/opencode.db` | SQLite opened read-only |
 | `openclaw` | `~/.openclaw/agents/*/sessions/<uuid>.jsonl` | JSONL |
 
-Transcript captures are copied into `raw/` because the harness may rotate its logs. A
-session modified within the last two minutes is marked `partial`: it can be searched but
-is not curated until it becomes stable.
+Agent connectors parse each session into human-readable Markdown, redact recognized
+credentials, and store that normalized snapshot in `raw/`. This is not a byte-for-byte
+copy of the harness log. The snapshot remains available if the harness later changes or
+removes its own file. A session modified within the last two minutes is marked `partial`:
+it can be searched but is not curated until it becomes stable.
 
 ## Manual capture
 

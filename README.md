@@ -67,8 +67,8 @@ my-folder/               the folder is the raw tier; your files stay put
 ```
 
 For a directory source, the folder itself is the raw tier; there is no duplicate `raw/`
-directory. `.hoppr/raw/` is used for sources such as agent logs whose original files may
-be rotated.
+directory. `.hoppr/raw/` is used for durable captures from connector-owned sources such
+as coding-agent session histories.
 
 - **Query everything together.** BM25 and local vector search are fused with RRF. Results
   can mix original files, wiki pages, table rows, graph entities, and skills.
@@ -92,7 +92,7 @@ npm install -g hoppr       # or prefix commands with npx
 
 cd ~/research/my-field
 hoppr init -y
-hoppr query "papers that challenge retrieval-augmented generation"
+hoppr search "papers that challenge retrieval-augmented generation"
 ```
 
 A hoppr works like a Git repository: commands run in nested directories find the nearest
@@ -110,16 +110,16 @@ hoppr init --global --name archive --from dir:~/Archive --curation index-only
 hoppr init --global --name work --from agents:claude-code,codex
 ```
 
-Folder sources stay in place. Agent transcripts are copied because their original logs
-may be rotated.
+Folder sources stay in place. Agent connectors instead store a redacted, normalized
+Markdown snapshot of each session because harness-owned logs may later change or disappear.
 
-## Query the folder, not the file names
+## Search the folder, not the file names
 
 ```bash
-hoppr query "papers that disagree about scaling laws"
-hoppr query "the receipt for the monitor" --scope all
-hoppr query "whiteboard photo about onboarding" --since 30d
-hoppr query "the flaky test fix involving fake timers" --explain
+hoppr search "papers that disagree about scaling laws"
+hoppr search "the receipt for the monitor" --scope all
+hoppr search "whiteboard photo about onboarding" --since 30d
+hoppr search "the flaky test fix involving fake timers" --explain
 ```
 
 All artifact types share one keyword index and, when enabled, one vector index. Filters
@@ -267,8 +267,8 @@ never rewritten         Git-tracked            rebuildable
 ```
 
 - A directory source is indexed in place and never opened for writing.
-- Agent logs are copied into `.hoppr/raw/` because harnesses delete from their own
-  directory; everything else is referenced where it already lives.
+- Agent sessions are stored as normalized snapshots in `.hoppr/raw/`; ordinary folder
+  sources are referenced where they already live.
 - Curated Markdown, tables, and skills are tracked in Git.
 - Search indexes and embedding caches are rebuildable.
 - A single optional daemon watches every registered store; CLI and MCP access work

@@ -26,8 +26,8 @@ export const ConfigSchema = z.object({
       source: z.string().default('manual'),
       /**
        * `reference` leaves raw inputs exactly where they are and records only
-       * provenance — hoppr never opens them for writing. `copy` keeps our own
-       * copy, needed where the upstream owner rotates the originals.
+       * provenance — hoppr never opens them for writing. `copy` keeps a durable
+       * capture when the upstream owner may change or remove the original.
        */
       raw_mode: z.enum(['reference', 'copy']).default('copy'),
       /** Which curation stages run. */

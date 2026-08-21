@@ -6,12 +6,13 @@
  * here, so if there is no mutating export, there is no way for an LLM pass to
  * damage the one tier you cannot regenerate. A lint rule and a test enforce it.
  *
- * The two writers that do exist are intake-only and both are strictly additive:
+ * The writers in this module are intake-only and additive:
  *   append()        — create a new record
  *   extendPartial() — append MORE bytes to a still-live session capture
  *
- * Bytes once written are never changed. `seal()` finalizes the provenance
- * sidecar (metadata, not content) when a session goes quiet.
+ * Connector sync may atomically refresh its normalized capture for an existing
+ * external session. Curation never writes to this tier. `seal()` finalizes the
+ * provenance sidecar when a session goes quiet.
  */
 import { existsSync } from 'node:fs'
 import { appendFile, readFile, stat } from 'node:fs/promises'

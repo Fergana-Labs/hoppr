@@ -144,7 +144,7 @@ program
       }
 
       console.log(`
-Next: ${c.cyan('hoppr query "…"')}   ${c.dim('or')}   ${c.cyan('hoppr add "something worth remembering"')}`)
+Next: ${c.cyan('hoppr search "…"')}   ${c.dim('or')}   ${c.cyan('hoppr add "something worth remembering"')}`)
     },
   )
 
@@ -305,7 +305,7 @@ program
 
 program
   .command('source')
-  .description('print the original bytes of a capture')
+  .description('print the captured source content')
   .argument('<id>')
   .action(async (id: string) => {
     const h = await ctx()
@@ -314,89 +314,88 @@ program
     process.stdout.write(await h.readRawText(rec))
   })
 
-// ── search / query ────────────────────────────────────────────────
-for (const name of ['search', 'query']) {
-  program
-    .command(name)
-    .description('hybrid search across raw captures, wiki pages, tables and skills')
-    .argument('<query...>')
-    .option('-n, --limit <n>', 'how many hits')
-    .option('--scope <scope>', 'curated | raw | all')
-    .option('--mode <mode>', 'hybrid | fts | vec', 'hybrid')
-    .option('--tag <tag...>', 'require these tags')
-    .option('--project <name>')
-    .option('--kind <kind>', 'source|concept|entity|comparison|digest|session|text|url|file')
-    .option('--since <when>', '7d | 2026-07-01 | yesterday')
-    .option('--explain', 'show per-arm ranks and boosts')
-    .action(async (words: string[], o: Record<string, string | string[] | boolean>) => {
-      const h = await ctx()
-      // Flags are sugar for the inline DSL, so both forms take exactly one path.
-      const extra: string[] = []
-      for (const t of (o.tag as string[]) ?? []) extra.push(`tag:${t}`)
-      if (o.project) extra.push(`project:${o.project as string}`)
-      if (o.kind) extra.push(`kind:${o.kind as string}`)
-      if (o.since) extra.push(`since:${o.since as string}`)
+// ── search ────────────────────────────────────────────────────────
+program
+  .command('search')
+  .alias('query')
+  .description('hybrid search across raw captures, wiki pages, tables and skills')
+  .argument('<query...>')
+  .option('-n, --limit <n>', 'how many hits')
+  .option('--scope <scope>', 'curated | raw | all')
+  .option('--mode <mode>', 'hybrid | fts | vec', 'hybrid')
+  .option('--tag <tag...>', 'require these tags')
+  .option('--project <name>')
+  .option('--kind <kind>', 'source|concept|entity|comparison|digest|session|text|url|file')
+  .option('--since <when>', '7d | 2026-07-01 | yesterday')
+  .option('--explain', 'show per-arm ranks and boosts')
+  .action(async (words: string[], o: Record<string, string | string[] | boolean>) => {
+    const h = await ctx()
+    // Flags are sugar for the inline DSL, so both forms take exactly one path.
+    const extra: string[] = []
+    for (const t of (o.tag as string[]) ?? []) extra.push(`tag:${t}`)
+    if (o.project) extra.push(`project:${o.project as string}`)
+    if (o.kind) extra.push(`kind:${o.kind as string}`)
+    if (o.since) extra.push(`since:${o.since as string}`)
 
-      const text = [...words, ...extra].join(' ')
-      const opts = {
-        limit: o.limit ? Number(o.limit) : undefined,
-        scope: o.scope as 'curated' | 'raw' | 'all' | undefined,
-        mode: o.mode as 'hybrid' | 'fts' | 'vec' | undefined,
-      }
-      let res = await h.search(text, opts)
+    const text = [...words, ...extra].join(' ')
+    const opts = {
+      limit: o.limit ? Number(o.limit) : undefined,
+      scope: o.scope as 'curated' | 'raw' | 'all' | undefined,
+      mode: o.mode as 'hybrid' | 'fts' | 'vec' | undefined,
+    }
+    let res = await h.search(text, opts)
 
-      // Searching the default curated scope before anything has been curated
-      // finds nothing, which reads as "hoppr lost my note" rather than "that
-      // note has not been curated yet". Widen once and say so.
-      let widened = false
-      if (res.hits.length === 0 && !o.scope) {
-        const all = await h.search(text, { ...opts, scope: 'all' })
-        if (all.hits.length > 0) {
-          res = all
-          widened = true
-        }
+    // Searching the default curated scope before anything has been curated
+    // finds nothing, which reads as "hoppr lost my note" rather than "that
+    // note has not been curated yet". Widen once and say so.
+    let widened = false
+    if (res.hits.length === 0 && !o.scope) {
+      const all = await h.search(text, { ...opts, scope: 'all' })
+      if (all.hits.length > 0) {
+        res = all
+        widened = true
       }
-      if (wantJson()) {
-        return printJson(res.hits, { ...res.meta, filters: res.query.filters, widened })
-      }
-      if (widened) console.log(c.dim('nothing curated yet — showing raw captures'))
+    }
+    if (wantJson()) {
+      return printJson(res.hits, { ...res.meta, filters: res.query.filters, widened })
+    }
+    if (widened) console.log(c.dim('nothing curated yet — showing raw captures'))
 
-      if (res.hits.length === 0) {
-        console.log(c.dim(`no hits${res.query.text ? ` for "${res.query.text}"` : ''}`))
-        if (!h.vectorAvailable) {
-          console.log(c.dim('note: vector search unavailable — keyword only'))
-        }
-        return
+    if (res.hits.length === 0) {
+      console.log(c.dim(`no hits${res.query.text ? ` for "${res.query.text}"` : ''}`))
+      if (!h.vectorAvailable) {
+        console.log(c.dim('note: vector search unavailable — keyword only'))
       }
-      for (const hit of res.hits) {
-        const badge = hit.tier === 'curated' ? c.cyan(hit.kind) : c.dim(hit.kind)
-        console.log(`${c.bold(hit.title || '(untitled)')}  ${badge}`)
-        console.log(
-          `  ${c.dim(hit.id)}${hit.tags.length ? c.dim(`  #${hit.tags.join(' #')}`) : ''}${
-            hit.matchedInSource ? c.dim('  [matched in source]') : ''
-          }`,
-        )
-        if (hit.snippet) console.log(`  ${hit.snippet}`)
-        if (o.explain) {
-          console.log(
-            c.dim(
-              `  ranks=${JSON.stringify(hit.why.ranks)} base=${hit.why.base.toFixed(
-                5,
-              )} boosted=${hit.why.boosted.toFixed(5)}`,
-            ),
-          )
-        }
-        console.log()
-      }
+      return
+    }
+    for (const hit of res.hits) {
+      const badge = hit.tier === 'curated' ? c.cyan(hit.kind) : c.dim(hit.kind)
+      console.log(`${c.bold(hit.title || '(untitled)')}  ${badge}`)
       console.log(
-        c.dim(
-          `${res.hits.length} of ${res.meta.candidates} candidates  ${res.meta.tookMs}ms  arms=[${res.meta.arms.join(
-            ',',
-          )}]`,
-        ),
+        `  ${c.dim(hit.id)}${hit.tags.length ? c.dim(`  #${hit.tags.join(' #')}`) : ''}${
+          hit.matchedInSource ? c.dim('  [matched in source]') : ''
+        }`,
       )
-    })
-}
+      if (hit.snippet) console.log(`  ${hit.snippet}`)
+      if (o.explain) {
+        console.log(
+          c.dim(
+            `  ranks=${JSON.stringify(hit.why.ranks)} base=${hit.why.base.toFixed(
+              5,
+            )} boosted=${hit.why.boosted.toFixed(5)}`,
+          ),
+        )
+      }
+      console.log()
+    }
+    console.log(
+      c.dim(
+        `${res.hits.length} of ${res.meta.candidates} candidates  ${res.meta.tookMs}ms  arms=[${res.meta.arms.join(
+          ',',
+        )}]`,
+      ),
+    )
+  })
 
 // ── reindex ───────────────────────────────────────────────────────
 program
@@ -775,7 +774,7 @@ program
     }
 
     console.log(
-      `\n  ${c.cyan('hoppr query "…"')}   ${c.dim('·')}   ${c.cyan('hoppr daemon start')} ${c.dim('to keep it current')}`,
+      `\n  ${c.cyan('hoppr search "…"')}   ${c.dim('·')}   ${c.cyan('hoppr daemon start')} ${c.dim('to keep it current')}`,
     )
   })
 

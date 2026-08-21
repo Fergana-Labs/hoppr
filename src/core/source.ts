@@ -7,8 +7,8 @@ import { HopprError } from './errors.ts'
  *
  *  - `dir`    — a folder you own. Files stay EXACTLY where they are; hoppr
  *               records provenance and never copies or writes there.
- *  - `agents` — harness session logs. These we do copy, because the harness
- *               owns them and rotates them out from under us.
+ *  - `agents` — harness session logs. These become durable, normalized
+ *               snapshots because the harness owns the originals.
  *  - `manual` — only what you throw in by hand.
  */
 export type SourceKindSpec = 'dir' | 'agents' | 'manual'
@@ -27,9 +27,8 @@ export interface SourceSpec {
  *
  * `reference` is the stronger guarantee: the bytes are yours, in your folder,
  * and hoppr provably cannot damage them because it never opens them for
- * writing. `copy` exists only where the upstream owner may delete the
- * original — agent harnesses rotate their logs, so a reference there would
- * silently rot.
+ * writing. `copy` exists where the upstream owner may change or remove the
+ * original. Agent connectors use it for durable, normalized session snapshots.
  */
 export type RawMode = 'reference' | 'copy'
 

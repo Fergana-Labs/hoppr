@@ -128,8 +128,8 @@ ${
   rawMode === 'reference'
     ? `# Raw inputs stay where they are — hoppr records provenance and extracted
 # text, and never opens your files for writing.`
-    : `# Raw captures are copied into raw/, because the upstream owner rotates
-# the originals and a reference would silently rot.`
+    : `# Durable captures are stored in raw/ because the upstream owner may
+# change or remove the original. Agent sessions are normalized to Markdown.`
 }
 
 [hopper]
