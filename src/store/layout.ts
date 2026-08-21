@@ -260,10 +260,16 @@ export const PAGE_DIRS: Record<string, string> = {
 
 /** Directories created by `hoppr init`. */
 export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
+  // Only the page types hoppr can actually produce. `entities/`,
+  // `comparisons/` and `digests/` are in the layout spec and are not built, so
+  // creating them left three more empty directories promising pages that never
+  // appear — the same problem as inbox/, views/ and state/. `pageDir()` still
+  // resolves them, so implementing one needs no layout change.
+  const BUILT_PAGE_TYPES = ['source', 'concept']
   return [
     ...(opts.raw === false ? [] : [l.raw]),
     l.wiki,
-    ...Object.values(PAGE_DIRS).map((d) => join(l.wiki, d)),
+    ...BUILT_PAGE_TYPES.map((t) => l.pageDir(t)),
     l.tables,
     l.skills,
     l.prompts,

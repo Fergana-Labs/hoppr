@@ -141,3 +141,28 @@ describe('intake', () => {
     expect(deriveTitle('')).toBe('Untitled')
   })
 })
+
+describe('no empty directories', () => {
+  it('creates only directories something writes to', async () => {
+    // inbox/, views/, state/, journal/ and logs/ were all created in every
+    // store while nothing ever wrote to them, and entities/ comparisons/
+    // digests/ promised page types that were never built. An empty directory
+    // in a layout is a question the reader has to answer for nothing.
+    const { layout, cleanup } = await tempStore()
+    try {
+      const { readdir } = await import('node:fs/promises')
+      const gone = ['inbox', 'views', 'state', 'journal', 'logs']
+      const top = await readdir(layout.root)
+      for (const d of gone) expect(top, `${d}/ should not exist`).not.toContain(d)
+
+      const wiki = await readdir(layout.wiki)
+      for (const d of ['entities', 'comparisons', 'digests']) {
+        expect(wiki, `${d}/ promises a page type that is not built`).not.toContain(d)
+      }
+      expect(wiki).toContain('sources')
+      expect(wiki).toContain('concepts')
+    } finally {
+      await cleanup()
+    }
+  })
+})
