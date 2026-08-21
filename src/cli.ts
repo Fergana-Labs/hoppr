@@ -1609,7 +1609,6 @@ skillsCmd
   .description('mine now without a full deep pass')
   .action(async () => {
     const h = await ctx()
-    const { minesSkills } = await import('./core/source.ts')
     if (!curationFor(h.config).skills) {
       throw HopprError.user(
         `'${h.name}' is a ${h.config.hopper.profile} hoppr — there are no procedures in it to mine.\n` +
@@ -1781,6 +1780,19 @@ program
       const { retentionWarning } = await import('./onboard.ts')
       const warn = await retentionWarning()
       if (warn) push('warn', warn)
+    }
+
+    // Terminally-failed rows are invisible otherwise: they leave the queue and
+    // stop being retried, so nothing mentions them again.
+    const { failedDocs } = await import('./embed/reconcile.ts')
+    const stuck = failedDocs(await h.db())
+    if (stuck.length > 0) {
+      push(
+        'warn',
+        `${stuck.length} document${stuck.length === 1 ? '' : 's'} failed to embed 3 times and ` +
+          `left the queue (${stuck[0]?.id}${stuck.length > 1 ? ', …' : ''}). ` +
+          '`hoppr retry --failed` re-arms them.',
+      )
     }
 
     const { isSubprocessProvider } = await import('./llm/index.ts')

@@ -357,3 +357,42 @@ describe('the shipped config has no keys the schema dropped', () => {
     expect(stale, `config keys the schema no longer has: ${stale.join(', ')}`).toEqual([])
   })
 })
+
+describe('no function kept alive only by its own test', () => {
+  it('every exported function has a caller outside the tests', async () => {
+    // The "nothing calls this" test counts a test as a use, so a function
+    // superseded in production stays green as long as its old test remains —
+    // `minesSkills` survived that way after `curationFor().skills` replaced it.
+    const { readdir, readFile } = await import('node:fs/promises')
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) out.push(...(await walk(p)))
+        else if (e.name.endsWith('.ts')) out.push(p)
+      }
+      return out
+    }
+    const srcFiles = await walk('src')
+    const src = (await Promise.all(srcFiles.map((f) => readFile(f, 'utf8')))).join('\n')
+    const publicApi = await readFile('src/index.ts', 'utf8')
+
+    const orphans: string[] = []
+    for (const [file, body] of await Promise.all(
+      srcFiles.map(async (f) => [f, await readFile(f, 'utf8')] as const),
+    )) {
+      for (const m of body.matchAll(/^export (?:async )?function ([a-zA-Z_]\w*)/gm)) {
+        const name = m[1] as string
+        if (publicApi.includes(name)) continue // exported for library consumers
+        // src/store/raw.ts is a deliberate API SURFACE: tier-boundary.test.ts
+        // asserts exactly which functions it exports, because the tier-1
+        // guarantee is "no mutating export exists". A read helper with no
+        // internal caller is the contract working, not dead code.
+        if (file.endsWith('src/store/raw.ts')) continue
+        const uses = (src.match(new RegExp(`\\b${name}\\b`, 'g')) ?? []).length
+        if (uses <= 1) orphans.push(name)
+      }
+    }
+    expect(orphans, `only tests call: ${orphans.join(', ')}`).toEqual([])
+  })
+})

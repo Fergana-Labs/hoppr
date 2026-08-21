@@ -43,15 +43,6 @@ export function defaultProfile(kind: SourceKindSpec): Profile {
   return kind === 'dir' ? 'folder' : kind === 'agents' ? 'agents' : 'manual'
 }
 
-/**
- * Skill mining only makes sense where there are procedures to mine. A folder
- * of papers has no workflow in it, and mining one would invent a procedure
- * from prose — worse than mining nothing.
- */
-export function minesSkills(profile: Profile): boolean {
-  return profile === 'agents'
-}
-
 export function parseSource(input: string): SourceSpec {
   const raw = input.trim()
   if (!raw || raw === 'manual') return { kind: 'manual', raw: 'manual' }

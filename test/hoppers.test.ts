@@ -7,7 +7,7 @@ import { loadConfig } from '../src/config/load.ts'
 import { dirConnector, stripHtml } from '../src/connectors/dir.ts'
 import { syncAll } from '../src/connectors/registry.ts'
 import { Hoppr } from '../src/core/hoppr.ts'
-import { defaultProfile, defaultRawMode, minesSkills, parseSource } from '../src/core/source.ts'
+import { defaultProfile, defaultRawMode, parseSource } from '../src/core/source.ts'
 import {
   countSteps,
   promotionGate,
@@ -45,8 +45,10 @@ describe('source specs', () => {
   })
 
   it('only mines skills where procedures exist', () => {
-    expect(minesSkills(defaultProfile('agents'))).toBe(true)
-    expect(minesSkills(defaultProfile('dir'))).toBe(false)
+    // Whether a hoppr mines skills is decided by its curation preset, not by
+    // its profile — see the preset tests. The profile only picks the default.
+    expect(defaultProfile('agents')).toBe('agents')
+    expect(defaultProfile('dir')).toBe('folder')
   })
 })
 

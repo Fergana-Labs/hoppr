@@ -5,7 +5,7 @@ import { contentHash } from '../core/hash.ts'
 import { isoDate, isoStamp, newId, slugify } from '../core/ids.ts'
 import type { Confidence, PageType } from '../core/types.ts'
 import { appendLine, type WriteResult, writeIfChanged } from './atomic.ts'
-import { buildPage, parsePage } from './frontmatter.ts'
+import { buildPage, isPinned, parsePage } from './frontmatter.ts'
 import type { Layout } from './layout.ts'
 
 export interface WikiPage {
@@ -120,7 +120,10 @@ export function parseWikiPage(text: string, type: PageType, slug: string): WikiP
     fields,
     created: String(d.created ?? isoDate(new Date())),
     updated: String(d.updated ?? isoDate(new Date())),
-    pinned: machine.pinned === true,
+    // Through isPinned, so the rule for "a human owns this page" lives in one
+    // place. It decides whether the curator rewrites your prose, which is the
+    // wrong rule to have two copies of.
+    pinned: isPinned(d),
     passId: machine.pass ? String(machine.pass) : undefined,
     sourceHash: machine.source_hash ? String(machine.source_hash) : undefined,
     promptHash: machine.prompt_hash ? String(machine.prompt_hash) : undefined,

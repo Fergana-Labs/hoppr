@@ -157,9 +157,12 @@ export async function buildGraph(
         st.dropped++
         continue
       }
-      const key = e.name.trim().toLowerCase().replace(/\s+/g, ' ')
+      // Through nodeKey, not a second copy of the same rule: two identity
+      // functions that drift apart split one entity into two nodes, which is
+      // invisible until a relation points at the wrong half.
+      const id = nodeKey(e.type, e.name)
+      const key = id.slice(id.indexOf(':') + 1)
       if (!key) continue
-      const id = `${e.type.toLowerCase()}:${key}`
       db.prepare(
         `INSERT INTO graph_nodes (id, type, key, name, summary, mentions, first_seen, last_seen)
          VALUES (:id, :type, :key, :name, :summary, 1, :now, :now)
