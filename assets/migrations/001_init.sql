@@ -205,6 +205,14 @@ CREATE TABLE chunks (
 CREATE UNIQUE INDEX chunks_doc_ord ON chunks(doc_id, ord);
 CREATE INDEX chunks_hash ON chunks(chunk_hash);
 
+-- NOTE: `vec_chunks`, the vec0 virtual table these vectors are searched
+-- through, is NOT here. It cannot be: its width is the embedding dimension
+-- (`FLOAT[384]`), which comes from config, and vec0 columns are fixed-width.
+-- It is created on first use in src/embed/reconcile.ts, which also records the
+-- dimension so a later model change fails loudly rather than returning
+-- silently wrong neighbours. Searching for its definition here is a reasonable
+-- thing to do and finding nothing is confusing, hence this note.
+--
 -- Keyed by content, not by row id, so it survives a full rebuild: `reindex`
 -- re-inserts vectors straight from cache at zero embedding cost. Vectors are
 -- the only expensive-to-recreate artifact in the whole system.
