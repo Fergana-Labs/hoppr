@@ -6,12 +6,11 @@
 
 **Turn any folder into queryable, structured context your agents can understand.** Run hoppr in a directory of
 papers, notes, screenshots, downloads, or agent transcripts. It leaves the original
-files alone and adds hybrid search, a linked wiki, structured tables, and an optional
-knowledge graph.
+files alone and adds hybrid search, an LLM wiki, structured tables, a knowledge graph, or skills.
 
 A folder is already a useful boundary: it contains material about a project, subject, or
-part of your life. hoppr makes that material searchable and gives both people and agents
-a structured way to work with it.
+part of your life. hoppr makes that material searchable and gives agents
+a structured way to work with it and build a compounding asset.
 
 ```bash
 cd ~/Downloads
@@ -34,7 +33,7 @@ Your files stay where they are and are never edited or written to.
 | `~/Downloads` | OCR and text extraction across mixed files, with one search interface |
 | screenshots | local OCR, optional visual descriptions, and search over text inside images |
 | an Obsidian vault | hybrid search and generated concept pages alongside the existing Markdown graph |
-| coding-agent history | durable memory across Claude Code, Codex, opencode, and openclaw sessions |
+| coding-agent history | durable memory and compounding skills across Claude Code, Codex, opencode, and openclaw sessions |
 
 ```bash
 cd ~/research/my-field && hoppr init --curation papers
