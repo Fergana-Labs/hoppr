@@ -19,21 +19,19 @@ import { writeIfChanged } from './store/atomic.ts'
 const BEGIN = '<!-- hoppr:begin -->'
 const END = '<!-- hoppr:end -->'
 
-/** The agent-facing files worth writing into, nearest first. */
-export function agentFilesNear(dir: string, depth = 3): string[] {
-  const names = ['CLAUDE.md', 'AGENTS.md']
-  const out: string[] = []
-  let cur = dir
-  for (let i = 0; i <= depth; i++) {
-    for (const n of names) {
-      const p = join(cur, n)
-      if (existsSync(p)) out.push(p)
-    }
-    const up = dirname(cur)
-    if (up === cur) break
-    cur = up
-  }
-  return out
+/**
+ * Agent files in THIS folder, and nowhere else.
+ *
+ * This walked up three directories, which meant running `hoppr init` in
+ * ~/Downloads could offer to edit ~/CLAUDE.md — a person's global agent
+ * memory, which is a different thing from a project file and not something a
+ * folder-indexing command should reach for.
+ *
+ * Predictable beats clever: the folder you ran it in. If you want the note in
+ * a repository root or your global memory, paste it there deliberately.
+ */
+export function agentFilesNear(dir: string): string[] {
+  return ['CLAUDE.md', 'AGENTS.md'].map((n) => join(dir, n)).filter((p) => existsSync(p))
 }
 
 export function hopprBlock(name: string, storeDir: string, description: string): string {
@@ -81,4 +79,39 @@ export async function annotateAgentFile(path: string, block: string): Promise<An
   }
   if (outcome !== 'unchanged') await writeIfChanged(path, next)
   return { path, outcome }
+}
+
+/**
+ * The machine-wide agent memory, if the person keeps one.
+ *
+ * Deliberately separate from `agentFilesNear`, and only offered the FIRST time
+ * a hoppr is created here. A per-folder note says "this store holds X"; a
+ * global note has to say something different — that hoppers exist at all, and
+ * how to find the right one — because it will be read in projects that have
+ * nothing to do with any of them.
+ */
+export function globalAgentFiles(home: string): string[] {
+  return [join(home, '.claude', 'CLAUDE.md'), join(home, '.codex', 'AGENTS.md')].filter((p) =>
+    existsSync(p),
+  )
+}
+
+export function globalHopprBlock(): string {
+  return [
+    BEGIN,
+    '## hoppr — local searchable context',
+    '',
+    'This machine has one or more hoppers: local indexes over folders of documents or',
+    'past agent sessions. They hold material that is not in any repository.',
+    '',
+    '```bash',
+    'hoppr hoppers                       # what exists, and what each is for',
+    'hoppr -H <name> search "<query>"    # search one',
+    'hoppr -H <name> source <id>         # the original capture, verbatim',
+    '```',
+    '',
+    'Read `hoppr hoppers` before searching: each carries a one-line description of what',
+    'it covers, and searching the wrong one looks the same as there being no answer.',
+    END,
+  ].join('\n')
 }

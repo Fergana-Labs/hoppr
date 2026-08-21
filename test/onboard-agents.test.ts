@@ -49,16 +49,44 @@ describe('telling agent files a hoppr exists', () => {
     expect(readFileSync(f, 'utf8')).toContain('Searchable context')
   })
 
-  it('finds agent files in parent directories, nearest first', () => {
+  it('looks in THIS folder and never walks up', async () => {
+    // It used to walk up three directories, so `hoppr init` in ~/Downloads
+    // could offer to edit ~/CLAUDE.md — a person's global agent memory, which
+    // is not something a folder-indexing command should reach for.
+    const { mkdirSync } = await import('node:fs')
     const root = mkdtempSync(join(tmpdir(), 'hoppr-tree-'))
-    const { mkdirSync } = require('node:fs') as typeof import('node:fs')
     const deep = join(root, 'a', 'b')
     mkdirSync(deep, { recursive: true })
-    writeFileSync(join(root, 'AGENTS.md'), 'root\n')
-    writeFileSync(join(deep, 'CLAUDE.md'), 'near\n')
+    writeFileSync(join(root, 'CLAUDE.md'), 'the parent, which must be left alone\n')
 
-    const found = agentFilesNear(deep)
-    expect(found[0]).toBe(join(deep, 'CLAUDE.md'))
-    expect(found).toContain(join(root, 'AGENTS.md'))
+    expect(agentFilesNear(deep)).toEqual([])
+
+    writeFileSync(join(deep, 'AGENTS.md'), 'here\n')
+    expect(agentFilesNear(deep)).toEqual([join(deep, 'AGENTS.md')])
+  })
+})
+
+describe('the machine-wide note', () => {
+  it('says something different from the per-folder one', async () => {
+    const { globalHopprBlock } = await import('../src/onboard-agents.ts')
+    const global = globalHopprBlock()
+    // A global note is read in projects with nothing to do with any hoppr, so
+    // it has to teach discovery rather than describe one store.
+    expect(global).toContain('hoppr hoppers')
+    expect(global).not.toContain('hoppr -H notes')
+    // The per-folder note names its store; the global one cannot.
+    expect(block).toContain('hoppr -H notes search')
+  })
+
+  it('only looks at files the person already keeps', async () => {
+    const { globalAgentFiles } = await import('../src/onboard-agents.ts')
+    const { mkdirSync } = await import('node:fs')
+    const home = mkdtempSync(join(tmpdir(), 'hoppr-home-'))
+    // Nothing there yet: hoppr must not create a global memory file for you.
+    expect(globalAgentFiles(home)).toEqual([])
+
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'CLAUDE.md'), 'mine\n')
+    expect(globalAgentFiles(home)).toEqual([join(home, '.claude', 'CLAUDE.md')])
   })
 })

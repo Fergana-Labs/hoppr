@@ -142,6 +142,10 @@ program
       // that ignores the folder around it was the same word doing a different
       // thing: you would run this in a folder of notes and find that none of
       // them had been indexed.
+      // Checked BEFORE this hoppr registers itself, or it is never the first.
+      const { readManifest } = await import('./store/manifest.ts')
+      const wasFirstHoppr = (await readManifest().catch(() => [])).length === 0
+
       const name =
         o.name ?? (basename(root) === '.hoppr' ? basename(dirname(root)) : basename(root))
       // One command, because there was never really more than one idea: make a
@@ -243,7 +247,8 @@ program
       // Offer to tell the agent files here that this store exists. A store
       // nobody knows about gets used by nobody, and CLAUDE.md / AGENTS.md are
       // already where a coding agent looks for standing instructions.
-      const { agentFilesNear, hopprBlock, annotateAgentFile } = await import('./onboard-agents.ts')
+      const { agentFilesNear, hopprBlock, annotateAgentFile, globalAgentFiles, globalHopprBlock } =
+        await import('./onboard-agents.ts')
       const agentFiles = agentFilesNear(process.cwd())
       if (agentFiles.length > 0) {
         const { confirm } = await import('./onboard.ts')
@@ -257,6 +262,28 @@ program
           for (const f of agentFiles) {
             const r = await annotateAgentFile(f, block).catch(() => undefined)
             if (r) console.log(`  ${c.green(r.outcome)} ${c.dim(r.path)}`)
+          }
+        }
+      }
+
+      // First hoppr on this machine? Offer the machine-wide memory too, once.
+      // A global note is read in projects with nothing to do with any hoppr, so
+      // it says something different: that they exist, and how to pick one.
+      if (wasFirstHoppr) {
+        const globals = globalAgentFiles(Layout.homeDir())
+        if (globals.length > 0) {
+          const { confirm } = await import('./onboard.ts')
+          console.log()
+          console.log(c.dim(`  this is the first hoppr on this machine`))
+          const shown = globals.map((f) => f.replace(Layout.homeDir(), '~')).join(', ')
+          if (o.yes || (await confirm(`  Mention hoppr in ${shown} as well?`))) {
+            for (const f of globals) {
+              const r = await annotateAgentFile(f, globalHopprBlock()).catch(() => undefined)
+              if (r)
+                console.log(
+                  `  ${c.green(r.outcome)} ${c.dim(r.path.replace(Layout.homeDir(), '~'))}`,
+                )
+            }
           }
         }
       }
