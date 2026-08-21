@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { VERSION } from '../core/version.ts'
 import { defaultTargets } from './install.ts'
 
 export interface McpEntry {
@@ -134,7 +135,7 @@ export async function mcpHandshake(argv: string[], timeoutMs = 20_000): Promise<
         params: {
           protocolVersion: '2024-11-05',
           capabilities: {},
-          clientInfo: { name: 'hoppr-doctor', version: '0.0.1' },
+          clientInfo: { name: 'hoppr-doctor', version: VERSION },
         },
       })}\n`,
     )

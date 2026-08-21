@@ -6,6 +6,7 @@ import { HopprError } from './core/errors.ts'
 import { Hoppr } from './core/hoppr.ts'
 import { c, human, printJson, relTime } from './core/out.ts'
 import { curationFor } from './core/profiles.ts'
+import { VERSION } from './core/version.ts'
 import { readStdin } from './intake/add.ts'
 import { writeIfChanged } from './store/atomic.ts'
 import { renderClaudeMd } from './store/claudemd.ts'
@@ -19,7 +20,7 @@ const program = new Command()
 program
   .name('hoppr')
   .description('Turn any folder into queryable, structured context')
-  .version('0.0.1')
+  .version(VERSION)
   .option('-H, --hopper <name>', 'which hoppr to use (default: $HOPPR_HOPPER or "default")')
   .option('--store <path>', 'explicit store path, bypassing the hoppr registry')
   .option('--json', 'machine-readable output')
@@ -115,9 +116,9 @@ program
       )
       if (r.gitInitialized) console.log(c.dim('  git repo initialized'))
       console.log(`
-  ${c.dim('raw/')}      immutable captures      ${c.dim('never modified')}
-  ${c.dim('curated/')}  wiki, tables, skills    ${c.dim('regenerable')}
-  ${c.dim('.index/')}   search index            ${c.dim('disposable')}
+  ${c.dim('your files')}   stay where they are     ${c.dim('never modified')}
+  ${c.dim('curated/')}     wiki, tables, skills    ${c.dim('regenerable')}
+  ${c.dim('.index/')}      search index            ${c.dim('disposable')}
 `)
 
       // Now that `init` has a source, the first pass belongs here too —

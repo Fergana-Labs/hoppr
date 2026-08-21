@@ -5,6 +5,7 @@ import { Cron } from 'croner'
 import { Hoppr } from '../core/hoppr.ts'
 import { embeddingsEnabled } from '../core/profiles.ts'
 import { parseSource } from '../core/source.ts'
+import { VERSION } from '../core/version.ts'
 import { appendLine, ensureDir } from '../store/atomic.ts'
 import * as gitmod from '../store/git.ts'
 import { Layout } from '../store/layout.ts'
@@ -73,7 +74,7 @@ export async function runDaemon(opts: DaemonOptions = {}): Promise<() => Promise
     port: 0,
     token,
     startedAt: Date.now(),
-    version: '0.0.1',
+    version: VERSION,
     root: home,
   })
 

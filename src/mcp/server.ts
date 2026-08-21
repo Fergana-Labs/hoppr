@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { Hoppr } from '../core/hoppr.ts'
+import { VERSION } from '../core/version.ts'
 import { loadPrompt } from '../store/prompts.ts'
 import { listPages } from '../store/wiki.ts'
 import { runVfs } from './vfs.ts'
@@ -77,7 +78,7 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
       'to indexed tools when useful.'
 
   const server = new McpServer(
-    { name: `hoppr${pinned ? `:${defaultHoppr.name}` : ''}`, version: '0.0.1' },
+    { name: `hoppr${pinned ? `:${defaultHoppr.name}` : ''}`, version: VERSION },
     { instructions: [header, guide].filter(Boolean).join('\n\n') },
   )
 

@@ -1,6 +1,6 @@
 {
   "name": "hoppr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn any folder into queryable, structured context with hybrid search, a linked wiki, tables, and an optional knowledge graph.",
   "keywords": [
     "mcp",
@@ -56,6 +56,7 @@
     "commander": "^15.0.0",
     "croner": "^10.0.1",
     "hono": "^4.13.2",
+    "hoppr": "^0.1.0",
     "smol-toml": "^1.8.0",
     "sqlite-vec": "^0.1.9",
     "tinyglobby": "^0.2.17",

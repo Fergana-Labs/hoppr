@@ -396,3 +396,32 @@ describe('no function kept alive only by its own test', () => {
     expect(orphans, `only tests call: ${orphans.join(', ')}`).toEqual([])
   })
 })
+
+describe('version', () => {
+  it('matches package.json and is not hardcoded anywhere', async () => {
+    // It was typed out in five places and every one still said 0.0.1 after the
+    // release was cut, so the published 0.1.0 introduced itself as 0.0.1 to
+    // --version, to MCP clients, and to /healthz.
+    const { readFile, readdir } = await import('node:fs/promises')
+    const { VERSION } = await import('../src/core/version.ts')
+    const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { version: string }
+    expect(VERSION).toBe(pkg.version)
+
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) out.push(...(await walk(p)))
+        else if (e.name.endsWith('.ts') && p !== 'src/core/version.ts') out.push(p)
+      }
+      return out
+    }
+    const offenders: string[] = []
+    for (const f of await walk('src')) {
+      const body = await readFile(f, 'utf8')
+      // A semver literal next to `version`, which is how the stale copies read.
+      if (/version['"]?\s*[:=]\s*['"]\d+\.\d+\.\d+['"]/.test(body)) offenders.push(f)
+    }
+    expect(offenders, `hardcoded version in: ${offenders.join(', ')}`).toEqual([])
+  })
+})

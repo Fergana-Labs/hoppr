@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Hoppr } from '../core/hoppr.ts'
+import { VERSION } from '../core/version.ts'
 import { listPages } from '../store/wiki.ts'
 
 export interface HttpHandle {
@@ -99,7 +100,7 @@ export function buildApp(src: Hoppr | HopperResolver, token: string) {
 
   const ok = (data: unknown, meta: Record<string, unknown> = {}) => ({ ok: true, data, meta })
 
-  app.get('/healthz', (c) => c.json({ ok: true, hoppers: resolver.list(), version: '0.0.1' }))
+  app.get('/healthz', (c) => c.json({ ok: true, hoppers: resolver.list(), version: VERSION }))
 
   app.get('/hoppers', async (c) => {
     const { listHoppers } = await import('../store/registry.ts')
