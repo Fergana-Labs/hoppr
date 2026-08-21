@@ -324,3 +324,50 @@ describe('skill resolver', () => {
     }
   })
 })
+
+describe('reindex on a reference-mode hoppr', () => {
+  it('does not empty the store', async () => {
+    // `reindex --full` rebuilds from raw/ and curated/. A folder hoppr has no
+    // raw/ — the folder IS the raw tier — so a rebuild found nothing to read
+    // and left search returning nothing until someone thought to run `sync`.
+    // The files were never at risk; the claim that a rebuild "costs nothing"
+    // was.
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'hoppr-reidx-'))
+    writeFileSync(join(dir, 'note.md'), '# Ranking\n\nRRF with k=60 beat weighted blending.')
+
+    const home = mkdtempSync(join(tmpdir(), 'hoppr-home-'))
+    mkdirSync(home, { recursive: true })
+    const prev = process.env.HOPPR_HOME
+    process.env.HOPPR_HOME = home
+    try {
+      const { createHopper } = await import('../src/store/registry.ts')
+      const { initStore } = await import('../src/store/init.ts')
+      const { Hoppr } = await import('../src/core/hoppr.ts')
+
+      const info = await createHopper({ name: 'ref', source: `dir:${dir}` })
+      const h = await Hoppr.open({ root: info.root })
+      await initStore(h.layout.root, h.config)
+      await h.sync({})
+
+      const count = async () =>
+        (await h.db()).prepare<{ n: number }>('SELECT count(*) n FROM raw').get()?.n ?? 0
+      expect(await count()).toBe(1)
+
+      // rebuildIndex closes and reopens the database, so a handle captured
+      // before it is dead afterwards — ask for it again.
+      await h.rebuildIndex({})
+      // Reference sources are re-scanned, because for them the filesystem is
+      // the durable tier and there is no raw/ to rebuild from.
+      await h.sync({})
+      const after = await count()
+      expect(after).toBe(1)
+      h.close()
+    } finally {
+      if (prev === undefined) delete process.env.HOPPR_HOME
+      else process.env.HOPPR_HOME = prev
+    }
+  })
+})

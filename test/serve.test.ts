@@ -221,7 +221,9 @@ describe('daemon lock', () => {
   it('refuses a second instance but reclaims a stale pidfile', async () => {
     const { layout, cleanup } = await tempStore()
     try {
-      const path = layout.daemonFile
+      // The lock is global now — one daemon manages every hoppr — so the test
+      // just needs a writable path, not a per-store accessor.
+      const path = `${layout.root}/daemon.json`
       const info = { port: 1, token: 't', startedAt: Date.now(), version: '0', root: layout.root }
       await acquire(path, info)
       expect((await read(path))?.pid).toBe(process.pid)

@@ -228,21 +228,11 @@ export class Layout {
   }
 
   // ── TIER 3: derived, gitignored ──────────────────────────────────
-  get views() {
-    return join(this.root, 'views')
-  }
-  get journal() {
-    return join(this.root, 'journal')
-  }
-  get state() {
-    return join(this.root, 'state')
-  }
-  get logs() {
-    return join(this.state, 'logs')
-  }
-  get daemonFile() {
-    return join(this.state, 'daemon.json')
-  }
+  // `views/`, `state/` and `journal/` used to live here and were created in
+  // every store while nothing ever wrote to them: the journal is a database
+  // table, the daemon's pidfile moved to ~/.hoppr when one process took over
+  // every hoppr, and the grep-friendly views were never built. Three empty
+  // directories in a layout is three questions a reader has to answer.
   get indexDir() {
     return join(this.root, '.index')
   }
@@ -283,9 +273,6 @@ export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
     l.prompts,
     l.outputs,
     l.graph,
-    l.views,
-    l.journal,
-    l.logs,
     l.indexDir,
   ]
 }

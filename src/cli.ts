@@ -400,6 +400,22 @@ program
     const st = o.full
       ? await h.rebuildIndex({ forgetEmbeddings: o.forgetEmbeddings })
       : await h.reindex()
+
+    // A rebuild reads raw/ and curated/. A reference-mode hoppr HAS no raw/ —
+    // its raw tier is your folder — so `--full` emptied the store and left
+    // search returning nothing until someone thought to run `sync`. The files
+    // were never at risk, but "rebuild costs nothing" was false for the one
+    // source type where the raw tier is not ours.
+    const { parseSource } = await import('./core/source.ts')
+    if (o.full && h.config.hopper.raw_mode === 'reference') {
+      const spec = parseSource(h.config.hopper.source)
+      if (spec.kind === 'dir') {
+        const stats = await h.sync({})
+        const n = stats.reduce((a, x) => a + x.captured + x.updated, 0)
+        st.raw.inserted += n
+        st.raw.scanned += n
+      }
+    }
     if (wantJson()) return printJson(st, { tookMs: Date.now() - t0, driver: h.driver })
     console.log(
       `raw    ${st.raw.scanned} scanned  ${c.green(`${st.raw.inserted} new`)}  ${

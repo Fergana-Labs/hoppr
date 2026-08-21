@@ -309,6 +309,7 @@ async function upsertCapture(
         title: item.title ?? null,
         ext: externalPath,
       })
+      await writeDerivedText(l, cfg, existing.id, item)
       projectCapture(db, cfg, existing.id, item)
       return 'updated'
     }
@@ -335,8 +336,54 @@ async function upsertCapture(
       origin: JSON.stringify({ ...item.origin, project: item.project }),
       ext: externalPath,
     })
+    await writeDerivedText(l, cfg, id, item)
     projectCapture(db, cfg, id, item)
     return 'created'
+  }
+
+  /**
+   * Write the EXTRACTION of a referenced file next to hoppr's other captures.
+   *
+   * A reference-mode capture leaves the original where it is, which is right —
+   * but it meant the derived text lived only in the database. For a `.md` that is
+   * fine: the text IS the file, and reindexing re-reads it for nothing. For an
+   * image it is not. The OCR pass and the vision-model description cost real time
+   * and real money, and putting them somewhere `hoppr reindex` wipes means paying
+   * again for something that never changed.
+   *
+   * So an image gets a shadow under `raw/` — the same shape a transcript gets:
+   * the original untouched upstream, a durable derived artifact here, with
+   * front-matter saying what it came from and how it was produced.
+   */
+  async function writeDerivedText(
+    l: Layout,
+    cfg: Config,
+    id: string,
+    item: IngestCandidate,
+  ): Promise<void> {
+    const src = String(item.origin.external_path ?? '')
+    if (!src) return
+    const { extname } = await import('node:path')
+    const { IMAGE_EXTS } = await import('../intake/extract/image.ts')
+    // Only where extraction was expensive. Prose re-reads for free.
+    if (!IMAGE_EXTS.includes(extname(src).toLowerCase())) return
+
+    const { writeIfChanged } = await import('../store/atomic.ts')
+    const { slugify } = await import('../core/ids.ts')
+    const { basename } = await import('node:path')
+    const stem = `${slugify(basename(src, extname(src))).slice(0, 60)}-${id.slice(-6)}`
+    const path = `${l.rawDir(new Date(item.updatedAt))}/${stem}.extract.md`
+
+    const front = [
+      '---',
+      `source: ${JSON.stringify(src)}`,
+      `raw_id: ${id}`,
+      `extracted: ${new Date(item.updatedAt).toISOString().slice(0, 10)}`,
+      `method: ${cfg.retrieval.extract.image_llm ? 'ocr+vision' : 'ocr'}`,
+      '---',
+      '',
+    ].join('\n')
+    await writeIfChanged(path, `${front}${item.body.trim()}\n`)
   }
 
   // ── copy mode ────────────────────────────────────────────────────
