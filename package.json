@@ -1,6 +1,6 @@
 {
   "name": "hoppr",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Turn any folder into queryable, structured context with hybrid search, a linked wiki, tables, and an optional knowledge graph.",
   "keywords": [
     "mcp",
@@ -81,10 +81,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/samzliu/hoppr.git"
+    "url": "git+https://github.com/Fergana-Labs/hoppr.git"
   },
-  "homepage": "https://github.com/samzliu/hoppr#readme",
+  "homepage": "https://github.com/Fergana-Labs/hoppr#readme",
   "bugs": {
-    "url": "https://github.com/samzliu/hoppr/issues"
+    "url": "https://github.com/Fergana-Labs/hoppr/issues"
   }
 }
