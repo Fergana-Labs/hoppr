@@ -68,7 +68,8 @@ export const claudeCode: Connector = {
     if (read.lines.length === 0) return { items: [], cursor: read.cursor, done: read.done }
 
     const includeSidechains = ctx.config.include_sidechains === true
-    const maxChars = Number(ctx.config.max_chars ?? 60_000)
+    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
+    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []
@@ -120,7 +121,7 @@ export const claudeCode: Connector = {
           turns.push({
             role: 'tool',
             tool: 'result',
-            text: summarizeToolInput(o.toolUseResult, 400),
+            text: summarizeToolInput(o.toolUseResult, toolCap),
           })
         }
       } else if (o.type === 'assistant' && o.message) {
@@ -146,7 +147,7 @@ export const claudeCode: Connector = {
         subagent_turns_skipped: sidechains || undefined,
       },
       turns,
-      { maxChars },
+      { maxChars, maxToolResultChars: toolCap },
     )
 
     const hash = contentHash(body)

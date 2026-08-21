@@ -66,3 +66,35 @@ export async function confirm(question: string, o: AskOptions = {}): Promise<boo
     rl.close()
   }
 }
+
+/**
+ * Claude Code deletes its own transcripts after `cleanupPeriodDays`, default 30.
+ *
+ * hoppr keeps a distilled markdown copy — roughly a thousandth of the size of
+ * the JSONL, enough to search and mine skills from. That is deliberately NOT a
+ * backup: it is lossy, and anything hoppr has not synced yet is simply gone.
+ *
+ * So the useful thing to say is not "we copied it" but "stop your harness
+ * deleting it", which costs the user one setting and keeps the original.
+ */
+export async function retentionWarning(): Promise<string | undefined> {
+  const { readFile } = await import('node:fs/promises')
+  const { homedir } = await import('node:os')
+  const { join } = await import('node:path')
+
+  let days = 30 // Claude Code's default when the key is absent
+  try {
+    const raw = await readFile(join(homedir(), '.claude', 'settings.json'), 'utf8')
+    const v = (JSON.parse(raw) as { cleanupPeriodDays?: number }).cleanupPeriodDays
+    if (typeof v === 'number') days = v
+  } catch {
+    // No settings file means the default applies, which is the case worth warning about.
+  }
+  if (days >= 365) return undefined
+
+  return (
+    `Claude Code deletes transcripts after ${days} days (cleanupPeriodDays). ` +
+    'hoppr keeps a distilled copy of what it has synced, but that is lossy and ' +
+    'anything not yet synced is gone. Raise it in ~/.claude/settings.json to keep the originals.'
+  )
+}

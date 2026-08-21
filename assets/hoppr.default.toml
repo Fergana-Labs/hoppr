@@ -98,6 +98,13 @@ max_calls_per_run = 200
 [intake]
 inbox = "inbox"
 redact = true                    # scrub secrets BEFORE anything is written
+# STORAGE limits for agent transcripts, applied once at capture and therefore
+# permanent. The tool-result cap was 400 chars, which threw away the part skill
+# mining exists to read: what a command printed when it failed. Curation has its
+# own, much smaller budget applied at read time, so keeping more here costs disk
+# rather than tokens — about 0.2 GB for 9,000 sessions.
+transcript_max_chars = 400000
+tool_result_max_chars = 8000
 debounce_ms = 20000              # quiet period before a fast pass
 max_wait_ms = 300000             # …but never wait longer than this
 

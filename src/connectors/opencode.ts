@@ -40,7 +40,8 @@ export const opencode: Connector = {
 
   async pull(source, ctx): Promise<PullResult> {
     const cursor = (ctx.cursor ?? { lastUpdated: 0 }) as DbCursor
-    const maxChars = Number(ctx.config.max_chars ?? 60_000)
+    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
+    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const db = await openDriver(source.key, 'auto', { readonly: true })
@@ -96,7 +97,7 @@ export const opencode: Connector = {
           } else if (row.role === 'assistant') {
             turns.push({ role: 'assistant', text })
           } else {
-            turns.push({ role: 'tool', tool: row.role, text: summarizeToolInput(text, 400) })
+            turns.push({ role: 'tool', tool: row.role, text: summarizeToolInput(text, toolCap) })
           }
         }
         if (userTurns < minTurns) continue
@@ -106,7 +107,7 @@ export const opencode: Connector = {
         const body = renderTranscript(
           { id: s.id, cwd: s.directory, cost_usd: s.cost, turns: turns.length },
           turns,
-          { maxChars },
+          { maxChars, maxToolResultChars: toolCap },
         )
         items.push({
           externalId: `opencode:${s.id}`,

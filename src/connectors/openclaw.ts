@@ -54,7 +54,8 @@ export const openclaw: Connector = {
     const read = await tailLines(source.key, cursor)
     if (read.lines.length === 0) return { items: [], cursor: read.cursor, done: read.done }
 
-    const maxChars = Number(ctx.config.max_chars ?? 60_000)
+    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
+    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []
@@ -99,7 +100,7 @@ export const openclaw: Connector = {
           turns.push({
             role: 'tool',
             tool: o.name ?? 'tool',
-            text: summarizeToolInput(o.content, 400),
+            text: summarizeToolInput(o.content, toolCap),
           })
           break
         default:

@@ -117,6 +117,22 @@ export const ConfigSchema = z.object({
       redact: z.boolean().default(true),
       /** The entropy net beneath the vendor patterns. */
       redact_entropy: z.boolean().default(true),
+      /**
+       * How much of a rendered transcript to keep, and how much of each tool
+       * result inside it.
+       *
+       * These are STORAGE limits, applied once at capture and therefore
+       * permanent. They were 60,000 and 400, and the 400 was the damaging one:
+       * a tool result is where a command failed and what it said, which is the
+       * entire payload for skill mining — "the failures are the point" is not
+       * true of a result cut off at 400 characters.
+       *
+       * Curation has its own, much smaller budget (`curate.max_raw_chars`)
+       * applied at READ time, so keeping more here costs disk rather than
+       * tokens.
+       */
+      transcript_max_chars: z.number().int().positive().default(400_000),
+      tool_result_max_chars: z.number().int().positive().default(8_000),
       redact_patterns: z.array(z.string()).default([]),
       debounce_ms: z.number().int().positive().default(20_000),
       max_wait_ms: z.number().int().positive().default(120_000),

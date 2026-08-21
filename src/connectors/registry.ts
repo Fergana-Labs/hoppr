@@ -86,6 +86,8 @@ export async function syncAll(
       max_file_mb: cfg.hopper.max_file_mb,
       use_gitignore: cfg.hopper.use_gitignore,
       extract: cfg.retrieval.extract,
+      transcript_max_chars: cfg.intake.transcript_max_chars,
+      tool_result_max_chars: cfg.intake.tool_result_max_chars,
     }
     out.push(await syncOne(db, l, cfg, dirConnector, conf, opts))
     return out

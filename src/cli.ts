@@ -1766,6 +1766,17 @@ program
       }
     }
 
+    // The upstream logs are the ORIGINAL. hoppr keeps a distilled markdown
+    // transcript, which is enough to search and mine but is not the source of
+    // truth — so the honest advice is to stop the harness deleting them, not
+    // to rely on our copy.
+    const { parseSource } = await import('./core/source.ts')
+    if (parseSource(h.config.hopper.source).kind === 'agents') {
+      const { retentionWarning } = await import('./onboard.ts')
+      const warn = await retentionWarning()
+      if (warn) push('warn', warn)
+    }
+
     const { isSubprocessProvider } = await import('./llm/index.ts')
     const { modelsFor, modelFor, modelMismatch } = await import('./llm/provider.ts')
     const { loadDotEnv, envOrigin } = await import('./config/env.ts')

@@ -81,7 +81,8 @@ export const codex: Connector = {
     const read = await tailLines(source.key, cursor)
     if (read.lines.length === 0) return { items: [], cursor: read.cursor, done: read.done }
 
-    const maxChars = Number(ctx.config.max_chars ?? 60_000)
+    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
+    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []
@@ -137,7 +138,7 @@ export const codex: Connector = {
           text: summarizeToolInput(p.arguments),
         })
       } else if (ptype === 'function_call_output') {
-        turns.push({ role: 'tool', tool: 'result', text: summarizeToolInput(p.output, 400) })
+        turns.push({ role: 'tool', tool: 'result', text: summarizeToolInput(p.output, toolCap) })
       }
     }
 
@@ -145,6 +146,7 @@ export const codex: Connector = {
 
     const body = renderTranscript({ id, cwd, codex: cli, provider, turns: turns.length }, turns, {
       maxChars,
+      maxToolResultChars: toolCap,
     })
     const hash = contentHash(body)
     if (cursor?.emittedHash === hash) {
