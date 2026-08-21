@@ -1,6 +1,6 @@
 {
   "name": "hoppr",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Turn any folder into queryable, structured context with hybrid search, a linked wiki, tables, and an optional knowledge graph.",
   "keywords": [
     "mcp",

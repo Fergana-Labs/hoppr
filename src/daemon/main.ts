@@ -154,7 +154,28 @@ export async function runDaemon(opts: DaemonOptions = {}): Promise<() => Promise
       m.busy = true
       try {
         const ran = await llmLane(async () => {
-          const st = await h.curate({})
+          // Drain the queue, do not nibble at it. One `curate` claims
+          // `fast_batch * 8`; the daemon used to do exactly that and then wait
+          // for the next file to change, so a first sync of 2,825 files left
+          // 2,761 uncurated indefinitely — and nothing said so.
+          //
+          // Between batches the lane is released and the budget re-checked, so
+          // a long drain neither blocks the other hoppers nor outruns the
+          // daily cap.
+          let st = await h.curate({})
+          let drained = st.claimed
+          for (let pass = 0; pass < MAX_DRAIN_PASSES; pass++) {
+            if ((await h.pendingCurateCount().catch(() => 0)) === 0) break
+            if (await overDailyBudget(h)) {
+              log(`[${name}] daily budget reached — pausing curation until tomorrow`)
+              break
+            }
+            const next = await h.curate({})
+            if (next.claimed === 0) break
+            drained += next.claimed
+            st = { ...next, written: st.written + next.written }
+            log(`[${name}] curating: ${drained} done, ${await h.pendingCurateCount()} left`)
+          }
           if (st.claimed > 0) log(`[${name}] fast pass (${why}): ${st.logLine}`)
           if (st.written > 0 && h.config.git.mode === 'auto') {
             // `raw` only exists in copy mode; commit() skips absent paths.
@@ -308,6 +329,21 @@ export async function runDaemon(opts: DaemonOptions = {}): Promise<() => Promise
     })
   }
   return shutdown
+}
+
+/**
+ * A ceiling on one drain, so a wedged corpus cannot spin forever. At the
+ * default batch this is well past any real backlog.
+ */
+const MAX_DRAIN_PASSES = 2000
+
+/** Stop before the configured daily spend, not after it. */
+async function overDailyBudget(h: Hoppr): Promise<boolean> {
+  const cap = h.config.curate.budget.max_usd_per_day
+  if (!cap) return false
+  const { spendSince } = await import('../llm/index.ts')
+  const spent = spendSince(await h.db(), Date.now() - 86_400_000).usd
+  return spent >= cap
 }
 
 interface Managed {

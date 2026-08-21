@@ -166,3 +166,30 @@ describe('no empty directories', () => {
     }
   })
 })
+
+describe('adding a file', () => {
+  it('scrubs a text file before it is written', async () => {
+    // `add --file .env` wrote the bytes verbatim — indexed, embedded, and
+    // committed to git. The one capture path that skipped redaction was the
+    // one most likely to be pointed at a secret.
+    const { layout, cleanup } = await tempStore()
+    try {
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+      const dir = mkdtempSync(join(tmpdir(), 'hoppr-secret-'))
+      const file = join(dir, 'config.env')
+      const leak = `sk-ant-api03-${'D'.repeat(40)}`
+      writeFileSync(file, `ANTHROPIC_API_KEY=${leak}\nOTHER=fine\n`)
+
+      const rec = await add(layout, { file, redaction: { enabled: true, extraPatterns: [] } })
+      if ('writtenTo' in rec) throw new Error('expected a raw capture')
+      const stored = await rawStore.readText(layout, rec)
+      expect(stored).not.toContain(leak)
+      expect(stored).toContain('redacted')
+      expect(stored).toContain('OTHER=fine') // the rest of the file survives
+    } finally {
+      await cleanup()
+    }
+  })
+})

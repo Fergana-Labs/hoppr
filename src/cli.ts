@@ -7,7 +7,6 @@ import { Hoppr } from './core/hoppr.ts'
 import { c, human, printJson, relTime } from './core/out.ts'
 import { curationFor } from './core/profiles.ts'
 import { VERSION } from './core/version.ts'
-import { readStdin } from './intake/add.ts'
 import { writeIfChanged } from './store/atomic.ts'
 import { renderClaudeMd } from './store/claudemd.ts'
 import * as gitmod from './store/git.ts'
@@ -57,6 +56,21 @@ async function reportRemaining(h: Hoppr): Promise<void> {
   console.log(
     c.dim('  `hoppr curate` for another pass, or `hoppr daemon start` to work through them'),
   )
+}
+
+/** Soft-wrap to a width, so a snippet reads as a block. */
+function wrap(text: string, width: number): string[] {
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let line = ''
+  for (const w of words) {
+    if (line.length + w.length + 1 > width) {
+      if (line) lines.push(line)
+      line = w
+    } else line = line ? `${line} ${w}` : w
+  }
+  if (line) lines.push(line)
+  return lines.slice(0, 4)
 }
 
 const progressLine = (msg: string) => {
@@ -192,8 +206,22 @@ program
         }
       }
 
-      console.log(`
-Next: ${c.cyan('hoppr search "…"')}   ${c.dim('or')}   ${c.cyan('hoppr add "something worth remembering"')}`)
+      // Be explicit that nothing is running yet. `hoppr daemon start` as a bare
+      // suggestion reads as optional polish; the truth is that without it the
+      // store only changes when you run a command.
+      const { daemonStatus } = await import('./daemon/main.ts')
+      const running = await daemonStatus().catch(() => undefined)
+      console.log()
+      console.log(`  ${c.cyan('hoppr search "…"')}    ${c.dim('search what you just indexed')}`)
+      if (running) {
+        console.log(`  ${c.dim(`daemon running (pid ${running.pid}) — it will keep this current`)}`)
+      } else {
+        console.log(
+          `  ${c.cyan('hoppr daemon start')}  ${c.dim('keep it current as files change')}`,
+        )
+        console.log(`  ${c.dim('  nothing runs in the background until you do')}`)
+      }
+      console.log(`  ${c.cyan('hoppr doctor')}        ${c.dim('check what is working')}`)
     },
   )
 
@@ -218,37 +246,33 @@ program
   })
 
 // ── add / ingest ──────────────────────────────────────────────────
+/**
+ * `add` brings a FILE in. It used to take prose too, which meant hoppr had an
+ * opinion about how you write a note — and for a folder hoppr, writing a note
+ * is writing a file in the folder, which needs no command at all.
+ */
 const addCmd = (name: string) =>
   program
     .command(name)
-    .description('throw something into the hopper (reads stdin when piped)')
-    .argument('[text...]')
+    .description('copy a file into this hoppr')
+    .argument('<file>')
     .option('-t, --tag <tag...>', 'tags')
     .option('-p, --project <name>', 'project')
     .option('--title <title>', 'explicit title')
-    .option('--file <path>', 'capture a file')
-    .option('--url <url>', 'record a url')
-    .action(async (text: string[] = [], o: Record<string, string | string[]>) => {
+    .action(async (file: string, o: Record<string, string | string[]>) => {
       const h = await ctx()
       h.requireStore()
-      const piped = text.length === 0 && !o.file && !o.url ? await readStdin() : ''
       const rec = await h.add({
-        text: text.join(' ') || piped,
-        file: o.file as string | undefined,
-        url: o.url as string | undefined,
+        file,
         title: o.title as string | undefined,
         tags: o.tag as string[] | undefined,
         project: o.project as string | undefined,
       })
       if (wantJson()) return printJson(rec)
-      console.log(
-        `${c.green('+')} ${c.bold(rec.title ?? rec.id)}\n  ${c.dim(
-          `${rec.id}  ${rec.kind}  ${human(rec.bytes)}  ${rec.path}`,
-        )}`,
-      )
+      console.log(`${c.green('+')} ${c.bold(rec.title ?? rec.id)}`)
+      console.log(`  ${c.dim(rec.path)}`)
     })
 addCmd('add')
-addCmd('ingest')
 
 /** Which variable each provider authenticates with, for `doctor`. */
 const ENV_KEYS: Record<string, string> = {
@@ -369,7 +393,6 @@ program
 // ── search ────────────────────────────────────────────────────────
 program
   .command('search')
-  .alias('query')
   .description('hybrid search across raw captures, wiki pages, tables and skills')
   .argument('<query...>')
   .option('-n, --limit <n>', 'how many hits')
@@ -407,21 +430,26 @@ program
       }
       return
     }
-    for (const hit of res.hits) {
+    for (const [i, hit] of res.hits.entries()) {
+      // Numbered, with the score visible and the path on its own line: the
+      // previous shape put an opaque id, the tags and a marker on one line and
+      // left the reader to work out which was which.
       const badge = hit.tier === 'curated' ? c.cyan(hit.kind) : c.dim(hit.kind)
-      console.log(`${c.bold(hit.title || '(untitled)')}  ${badge}`)
-      // The PATH, not the primary key: `raw:01M0GYNX2MFQ…` tells a reader
-      // nothing, and a path is both meaningful and clickable in most terminals.
       console.log(
-        `  ${c.dim(hit.path ?? hit.id)}${hit.tags.length ? c.dim(`  #${hit.tags.join(' #')}`) : ''}${
-          hit.matchedInSource ? c.dim('  [matched in source]') : ''
-        }`,
+        `${c.dim(`${i + 1}.`.padStart(3))} ${c.bold(hit.title || '(untitled)')}  ${badge}` +
+          (hit.matchedInSource ? c.dim('  · matched in the source') : ''),
       )
-      if (hit.snippet) console.log(`  ${hit.snippet}`)
+      console.log(`    ${c.dim(hit.path ?? hit.id)}`)
+      if (hit.tags.length) console.log(`    ${c.dim(`#${hit.tags.slice(0, 6).join(' #')}`)}`)
+      if (hit.snippet) {
+        // Indented and wrapped to the terminal, so a long snippet reads as a
+        // block rather than running to the edge of the window.
+        for (const line of wrap(hit.snippet, 92)) console.log(`    ${line}`)
+      }
       if (o.explain) {
         console.log(
           c.dim(
-            `  ranks=${JSON.stringify(hit.why.ranks)} base=${hit.why.base.toFixed(
+            `    ranks=${JSON.stringify(hit.why.ranks)} base=${hit.why.base.toFixed(
               5,
             )} boosted=${hit.why.boosted.toFixed(5)}`,
           ),

@@ -26,15 +26,23 @@ echo "── init ──"
 git -C "$STORE" ls-files | grep -q '^\.index/' && bad "index is tracked" || ok "index/views/state gitignored"
 
 echo "── capture ──"
-"${HOPPR[@]}" add "RRF at k=60 beat weighted score blending for hybrid retrieval" -t search >/dev/null 2>&1
-echo "Piped capture about SQLite FTS5 external content triggers" | "${HOPPR[@]}" ingest -t sqlite >/dev/null 2>&1
-"${HOPPR[@]}" add --url "https://example.com/rrf" --title "RRF paper" >/dev/null 2>&1
+# `add` takes a FILE. Writing a note is writing a file, which is the whole
+# model for a folder hoppr.
+INBOX="$(dirname "$STORE")/incoming"
+mkdir -p "$INBOX"
+echo "RRF at k=60 beat weighted score blending for hybrid retrieval" > "$INBOX/rrf.md"
+echo "Capture about SQLite FTS5 external content triggers" > "$INBOX/fts5.md"
+echo "A third note about vector search recall" > "$INBOX/vectors.md"
+"${HOPPR[@]}" add "$INBOX/rrf.md" -t search >/dev/null 2>&1
+"${HOPPR[@]}" add "$INBOX/fts5.md" -t sqlite >/dev/null 2>&1
+"${HOPPR[@]}" add "$INBOX/vectors.md" -t search >/dev/null 2>&1
 N=$("${HOPPR[@]}" --json ls 2>/dev/null | jq_ 'print(len(d["data"]))')
-check "3 captures (arg, stdin, url)" "$N" "3"
+check "3 captures from files" "$N" "3"
 
 echo "── redaction ──"
 LEAK="sk-ant-api03-$(printf 'C%.0s' $(seq 1 40))"
-"${HOPPR[@]}" add "my key is $LEAK please remember" >/dev/null 2>&1
+echo "my key is $LEAK please remember" > "$INBOX/leak.md"
+"${HOPPR[@]}" add "$INBOX/leak.md" >/dev/null 2>&1
 if grep -rq "$LEAK" "$STORE/raw" 2>/dev/null; then bad "live credential written to raw/"; else ok "credential scrubbed before write"; fi
 grep -rq 'redacted:anthropic-key' "$STORE/raw" && ok "redaction marker left in place" || bad "no redaction marker"
 
@@ -91,7 +99,8 @@ check "mcp server exposes 13 tools (12 + hoppr_list)" "$TOOLS" "13"
 
 echo "── degradation ──"
 HOPPR_NO_LLM=1 "${HOPPR[@]}" search 'fusion' --scope all >/dev/null 2>&1 && ok "search works with no LLM configured" || bad "search needs an LLM"
-HOPPR_NO_LLM=1 "${HOPPR[@]}" add "captured with no LLM" >/dev/null 2>&1 && ok "capture works with no LLM" || bad "capture needs an LLM"
+echo "captured with no LLM" > "$INBOX/nollm.md"
+HOPPR_NO_LLM=1 "${HOPPR[@]}" add "$INBOX/nollm.md" >/dev/null 2>&1 && ok "capture works with no LLM" || bad "capture needs an LLM"
 has "curate says why it cannot run" "$(HOPPR_NO_LLM=1 out "${HOPPR[@]}" curate)" "no LLM provider"
 
 echo "── named hoppers ──"

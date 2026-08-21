@@ -81,7 +81,7 @@ putting a file in the folder is the same thing, and the daemon picks it up.
 
 ```bash
 hoppr search "papers that disagree about scaling laws"
-hoppr query  "..."                         # backward-compatible alias
+hoppr search  "..."                         # backward-compatible alias
 ```
 
 | option | meaning |

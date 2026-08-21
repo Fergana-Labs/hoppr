@@ -6,6 +6,28 @@ import type { Layout } from '../store/layout.ts'
 import * as raw from '../store/raw.ts'
 import { redact } from './redact.ts'
 
+/** Extensions whose contents are prose or code, and so can be scrubbed. */
+const TEXT_EXTS = new Set([
+  '.md',
+  '.markdown',
+  '.mdx',
+  '.txt',
+  '.rst',
+  '.org',
+  '.json',
+  '.jsonl',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.csv',
+  '.tsv',
+  '.html',
+  '.htm',
+  '.env',
+  '.sh',
+  '.log',
+])
+
 export interface RedactionConfig {
   enabled: boolean
   extraPatterns: string[]
@@ -58,7 +80,26 @@ export async function add(l: Layout, input: AddInput) {
     })
     if (!s.isFile()) throw HopprError.user(`not a file: ${input.file}`)
     const ext = extname(abs).toLowerCase()
-    const bytes = await readFile(abs)
+    const raw_bytes = await readFile(abs)
+
+    /**
+     * Scrub a TEXT file before it is written, exactly as typed input is.
+     *
+     * `add --file .env` wrote the bytes verbatim into raw/, where they would be
+     * indexed, embedded, committed to git — the precise failure redaction
+     * exists to prevent, reached by the one path that skipped it. Binary is
+     * left alone: it cannot be pattern-matched, and rewriting it would corrupt
+     * the capture.
+     */
+    const textLike = TEXT_EXTS.has(ext) || (MEDIA_BY_EXT[ext] ?? '').startsWith('text/')
+    const bytes = textLike
+      ? redact(raw_bytes.toString('utf8'), {
+          enabled: input.redaction?.enabled,
+          entropy: input.redaction?.entropy,
+          extraPatterns: input.redaction?.extraPatterns,
+        }).text
+      : raw_bytes
+
     return raw.append(l, {
       bytes,
       kind: 'file',
@@ -119,11 +160,4 @@ export function deriveTitle(text: string): string {
   if (!line) return 'Untitled'
   const clean = line.replace(/^#{1,6}\s+/, '').replace(/^[-*+]\s+/, '')
   return clean.length > 80 ? `${clean.slice(0, 77).trimEnd()}…` : clean
-}
-
-export async function readStdin(): Promise<string> {
-  if (process.stdin.isTTY) return ''
-  const chunks: Buffer[] = []
-  for await (const c of process.stdin) chunks.push(Buffer.from(c))
-  return Buffer.concat(chunks).toString('utf8')
 }
