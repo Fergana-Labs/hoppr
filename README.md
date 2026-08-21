@@ -72,8 +72,8 @@ directory. `.hoppr/raw/` is used for durable captures from connector-owned sourc
 as coding-agent session histories.
 
 - **Search everything together.** BM25 and local vector search are fused with RRF. Results
-  can mix original files, wiki pages, table rows, and skills; \`--scope curated\` and
-  \`--scope raw\` narrow the search when you need them.
+  can mix original files, wiki pages, table rows, and skills; `--scope curated` and
+  `--scope raw` narrow the search when you need them.
 - **Build a wiki from a folder.** Fast passes write source pages; deep passes merge
   recurring ideas into concepts and converge the tag vocabulary.
 - **Extract rows, not just summaries.** Define a table once and new matching captures
@@ -139,8 +139,8 @@ hoppr mcp status --probe
 The MCP server is a stdio process launched by the client. It opens SQLite directly, so it
 does not depend on the daemon.
 
-Agents do not need MCP to use a hoppr. The store is a normal directory: they can \`rg\`
-the Markdown wiki, read source paths, or inspect \`curated/graph/*.jsonl\` directly. MCP
+Agents do not need MCP to use a hoppr. The store is a normal directory: they can `rg`
+the Markdown wiki, read source paths, or inspect `curated/graph/*.jsonl` directly. MCP
 adds ranked search and graph traversal; it is not a filesystem abstraction or security
 boundary.
 
