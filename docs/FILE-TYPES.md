@@ -1,7 +1,8 @@
 # Supported inputs
 
-A folder source (`--from dir:<path>`) discovers supported files by extension. `hoppr add`
-can also capture text, a supported file, or a URL record directly.
+Run `hoppr init` in a folder to index its supported files without modifying them. Use
+`--from dir:<path>` when the store should live elsewhere. `hoppr add` can also capture
+text, a supported file, or a URL record directly.
 
 ## Folder sources
 
@@ -63,6 +64,9 @@ Source code files such as `.ts` and `.py` are not indexed. hoppr extracts and cu
 prose; it does not parse code structure.
 
 ## Agent transcripts
+
+Agent history is an optional source alongside ordinary folders. It is useful when the
+folder you want to query is maintained by a coding harness rather than by you.
 
 `--from agents:<harness,...>` reads local session logs:
 

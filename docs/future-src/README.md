@@ -1,7 +1,7 @@
 # Reference implementations, not built
 
 These implementations were removed from `src/` because they require network access or
-external data sources beyond hoppr's local folder and transcript inputs.
+external data sources beyond hoppr's local-folder model.
 
 All four were verified against live services before removal. Measurements and design
 notes are in [`../FUTURE-SOURCES.md`](../FUTURE-SOURCES.md).

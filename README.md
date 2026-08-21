@@ -4,37 +4,60 @@
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Memory for coding agents that survives the session.** Point hoppr at your Claude Code,
-Codex, opencode, or openclaw history. It turns old transcripts into a searchable wiki,
-structured tables, and reusable skills—then serves them back to any agent over MCP.
+**Turn any folder into queryable, structured context.** Run hoppr in a directory of
+papers, notes, screenshots, downloads, or agent transcripts. It leaves the original
+files alone and adds hybrid search, a linked wiki, structured tables, and an optional
+knowledge graph.
 
-Every coding agent already leaves useful context on disk: decisions, failed approaches,
-debugging trails, and workflows that finally worked. The next session rarely sees any of
-it. hoppr makes that history cumulative.
+A folder is already a useful boundary: it contains material about a project, subject, or
+part of your life. hoppr makes that material searchable and gives both people and agents
+a structured way to work with it.
 
 ```bash
-npx hoppr setup
+cd ~/Downloads
+npx hoppr init
 ```
 
-That finds your local agent logs, creates a store for each one, and offers to index and
-curate them.
+Like `git init`, `hoppr init` creates a hidden directory in the folder where you run it.
+Your files stay where they are and are never opened for writing.
 
-![hoppr search results for a debugging query](docs/01-search.png)
+![hoppr wiki built from a mixed folder](docs/02-wiki.png)
 
-> One local store. Hybrid search over raw transcripts and curated knowledge. No account,
-> hosted database, or always-on service required.
+> Your folder remains the source of truth. `.hoppr/` contains the search index and
+> generated structure. No hosted database or always-on service is required.
+
+## Use it on the folders you already have
+
+| folder | what hoppr adds |
+|---|---|
+| research papers | searchable PDF text, summaries, recurring concepts, and a typed graph |
+| `~/Downloads` | OCR and text extraction across mixed files, with one search interface |
+| screenshots | local OCR, optional visual descriptions, and search over text inside images |
+| an Obsidian vault | hybrid search and generated concept pages alongside the existing Markdown graph |
+| coding-agent history | durable memory across Claude Code, Codex, opencode, and openclaw sessions |
+
+```bash
+cd ~/research/my-field && hoppr init --curation papers
+cd ~/Downloads && hoppr init --curation index-only
+cd ~/Desktop/Screenshots && hoppr init
+cd ~/vault && hoppr init --curation notes
+
+# Agent memory is another source, not a separate product:
+hoppr init --from agents:claude-code,codex --global --name work
+```
 
 ## What you get
 
 ```text
-my-notes/                the folder IS the raw tier — your files stay put
+my-folder/               the folder is the raw tier; your files stay put
 ├── meeting-notes.md
-├── rank-fusion.md
+├── paper.pdf
+├── screenshot.png
 └── .hoppr/
     ├── curated/
     │   ├── wiki/        source pages + concepts + wikilinks
     │   ├── tables/      structured JSONL with source traces
-    │   ├── skills/      reusable procedures, proposed for review
+    │   ├── skills/      optional procedures distilled from agent logs
     │   └── prompts/     editable curation instructions
     ├── schemas/         graph / wiki / skills, when they outgrow one file
     ├── .index/          BM25 + vector search
@@ -43,22 +66,22 @@ my-notes/                the folder IS the raw tier — your files stay put
     └── hoppr.toml       source and curation settings
 ```
 
-There is no `raw/` here: for a folder hoppr the folder itself is the raw tier. A
-`.hoppr/raw/` appears only for **agent logs**, which live in the harness's own directory
-and get deleted from it — so hoppr keeps a durable copy, named after its content.
+For a directory source, the folder itself is the raw tier; there is no duplicate `raw/`
+directory. `.hoppr/raw/` is used for sources such as agent logs whose original files may
+be rotated.
 
-- **Search across sessions.** BM25 and local vector search are fused with RRF. Results
-  can mix transcripts, wiki pages, table rows, and skills.
-- **Turn transcripts into knowledge.** Fast passes write source pages; deep passes merge
+- **Query everything together.** BM25 and local vector search are fused with RRF. Results
+  can mix original files, wiki pages, table rows, graph entities, and skills.
+- **Build a wiki from a folder.** Fast passes write source pages; deep passes merge
   recurring ideas into concepts and converge the tag vocabulary.
-- **Recover working procedures.** Repeated tool sequences and error-to-fix patterns
-  become reviewable `SKILL.md` proposals.
 - **Extract rows, not just summaries.** Define a table once and new matching captures
   populate it on later passes. Every cell retains its source.
 - **Review every generated change.** Curated output is Markdown and JSONL in Git. hoppr
   commits each curation pass so you can diff or revert it.
-- **Keep raw input raw.** Referenced folders are never opened for writing. Copied agent
-  logs are immutable.
+- **Configure the whole pipeline.** Choose what is indexed, what can be sent to a model,
+  which artifacts are generated, their schemas and prompts, and which models do the work.
+- **Keep the source folder untouched.** hoppr writes only inside `.hoppr/` for ordinary
+  directory sources.
 
 ## Try it in 60 seconds
 
@@ -67,32 +90,36 @@ Requires Node 20.11 or later.
 ```bash
 npm install -g hoppr       # or prefix commands with npx
 
-cd ~/code/myproject
-hoppr init
-hoppr add "we chose RRF because BM25 and cosine scores use different scales"
-hoppr query "why rank fusion"
+cd ~/research/my-field
+hoppr init -y
+hoppr query "papers that challenge retrieval-augmented generation"
 ```
 
 A hoppr works like a Git repository: commands run in nested directories find the nearest
 `.hoppr/` by walking up the tree.
 
-Point one at material you already have:
+Keep adding supported files to the folder as usual. `hoppr sync` picks them up on demand;
+the optional daemon watches for changes and indexes them in the background. There is no
+separate import directory for ordinary folder sources.
+
+Or point a globally registered hoppr at material elsewhere:
 
 ```bash
-hoppr init --global --name work --from agents:claude-code,codex
-hoppr init --global --name papers --from dir:~/Downloads --curation papers
+hoppr init --global --name papers --from dir:~/research --curation papers
 hoppr init --global --name archive --from dir:~/Archive --curation index-only
+hoppr init --global --name work --from agents:claude-code,codex
 ```
 
 Folder sources stay in place. Agent transcripts are copied because their original logs
 may be rotated.
 
-## Ask for the thing you forgot
+## Query the folder, not the file names
 
 ```bash
-hoppr query "the flaky test fix involving fake timers"
-hoppr query "why did we reject the schema rewrite?" --scope all
-hoppr query "rank fusion tag:search project:hoppr since:30d" --explain
+hoppr query "papers that disagree about scaling laws"
+hoppr query "the receipt for the monitor" --scope all
+hoppr query "whiteboard photo about onboarding" --since 30d
+hoppr query "the flaky test fix involving fake timers" --explain
 ```
 
 All artifact types share one keyword index and, when enabled, one vector index. Filters
@@ -110,7 +137,7 @@ hoppr mcp status --probe
 The MCP server is a stdio process launched by the client. It opens SQLite directly, so it
 does not depend on the daemon.
 
-## Five ways to curate
+## Start with a preset, then change anything
 
 | preset | builds | model calls |
 |---|---|---|
@@ -120,8 +147,31 @@ does not depend on the daemon.
 | `index-only` | keyword and vector search | no |
 | `minimal` | keyword search only | no |
 
-Presets are starting points, not locked modes. Each underlying setting can be changed in
-`hoppr.toml`.
+Presets are starting points, not locked modes. The individual layers remain configurable:
+
+- `hoppr.toml` controls retrieval, extraction, curation, scheduling, models, and Git.
+- `.hopprignore` separates files to skip from files to index without model access.
+- `.hoppr/curated/tables/` contains standing table schemas.
+- `.hoppr/schemas/` defines wiki outlines, entity types, relationships, and skill settings.
+- `.hoppr/curated/prompts/` contains the editable prompts used during curation.
+- Hand-edited generated pages and rows are pinned instead of overwritten.
+
+```toml
+[retrieval]
+embeddings = true
+graph = true
+
+[retrieval.extract]
+ocr = true
+image_llm = false
+pdf = true
+pdf_ocr = true
+office = true
+
+[llm]
+fast_provider = "openrouter"
+quality_provider = "ollama"
+```
 
 The wiki follows
 [Karpathy's LLM wiki specification](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
@@ -175,7 +225,7 @@ hoppr sql "select outcome, count(*) from v_meetings group by outcome"
 Rows are exported as JSONL. Manual edits pin the row, so later extraction preserves your
 changes. `converging = true` reuses existing values as preferred vocabulary.
 
-## Skills from real work
+## Optional: turn agent history into reusable skills
 
 The deep pass groups transcripts by procedural similarity: repeated tool sequences,
 recurring failures, and fixes that worked.
@@ -190,7 +240,7 @@ hoppr skills install debug-flaky-vitest
 hoppr never auto-installs a skill. Proposals require explicit acceptance and installation,
 and rejected proposals are remembered.
 
-## More than transcripts
+## What hoppr can read
 
 hoppr can index prose, HTML, JSON, YAML, CSV, PDF, Word, Excel, PowerPoint, and common
 image formats. Images use local OCR for searchable text and an optional vision model for
@@ -216,7 +266,7 @@ raw input  ──curate──>  curated/  ──index──>  .index/
 never rewritten         Git-tracked            rebuildable
 ```
 
-- A directory source is referenced in place.
+- A directory source is indexed in place and never opened for writing.
 - Agent logs are copied into `.hoppr/raw/` because harnesses delete from their own
   directory; everything else is referenced where it already lives.
 - Curated Markdown, tables, and skills are tracked in Git.
@@ -257,9 +307,9 @@ Keep API keys in the environment, `~/.hoppr/.env`, or `<store>/.env`, not in
 
 ## Security
 
-Agent logs often contain pasted keys and echoed `.env` files. hoppr redacts recognized
-credentials before extracted text is indexed, embedded, committed, or sent to a model.
-The original source is never modified.
+Folders and agent logs may contain pasted keys or echoed `.env` files. hoppr redacts
+recognized credentials before extracted text is indexed, embedded, committed, or sent
+to a model. The original source is never modified.
 
 Built-in redaction covers common vendor tokens, private keys, bearer tokens, JWTs,
 credentials in URLs, suspicious assignments, and an entropy-based fallback. It reduces
@@ -268,9 +318,9 @@ accidental exposure but cannot make an untrusted corpus safe to publish.
 ## Commands
 
 ```text
-hoppr init | new | setup | doctor
+hoppr init | setup | doctor
 hoppr add | sync | query | get | related
-hoppr curate | deep | reindex | embed
+hoppr index | curate | deep | reindex | embed | catalog
 hoppr tables | table | sql | graph
 hoppr skills | prompts | journal | undo
 hoppr mcp | vfs | daemon | web | browse

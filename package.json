@@ -1,13 +1,17 @@
 {
   "name": "hoppr",
   "version": "0.0.1",
-  "description": "A local-first hopper for agent memory. Throw things in; a sleep-time agent curates them into a Karpathy-style LLM wiki, structured tables, and reusable skills. Served to other agents over MCP.",
+  "description": "Turn any folder into queryable, structured context with hybrid search, a linked wiki, tables, and an optional knowledge graph.",
   "keywords": [
     "mcp",
     "llm-wiki",
     "agent-memory",
+    "document-search",
+    "folder-search",
     "knowledge-base",
     "claude-code",
+    "ocr",
+    "obsidian",
     "second-brain",
     "local-first"
   ],

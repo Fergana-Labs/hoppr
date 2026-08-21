@@ -1,5 +1,18 @@
 # hoppr — command reference
 
+The default workflow starts in a directory you already have:
+
+```bash
+cd <folder>
+hoppr init
+hoppr index
+hoppr query "what you are looking for"
+```
+
+`hoppr init` creates `<folder>/.hoppr/` and uses the surrounding folder as its source.
+The source files remain in place and are never opened for writing. Generated wiki pages,
+tables, schemas, prompts, and the search database live under `.hoppr/`.
+
 Every command accepts these global flags:
 
 | flag | meaning |
@@ -18,7 +31,7 @@ a `.hoppr/` store, the way git finds `.git/`.
 ```bash
 hoppr init [path]                       # index THIS folder — like `git init`
 hoppr init --from agents:claude-code,codex --global --name work
-hoppr init --from dir:~/Downloads --global --name papers
+hoppr init --from dir:~/research --global --name papers
 ```
 
 | option | meaning |
@@ -53,9 +66,9 @@ session counts, and offers to create one hoppr per harness. It is idempotent.
 ## Putting things in
 
 ```bash
-hoppr add "rank fusion beat weighted scoring" -t search -p hoppr
+hoppr add "a note that belongs with this folder" -t idea
 echo "..." | hoppr add                    # reads stdin when piped
-hoppr add --file ./notes.pdf
+hoppr add --file ./paper.pdf
 hoppr add --url https://example.com/post   # records the link; hoppr does not fetch
 hoppr sync                                # pull from the configured source
 hoppr sync --since 7d | --full | --dry-run
@@ -67,7 +80,7 @@ the daemon and the file is consumed.
 ## Finding things
 
 ```bash
-hoppr search "how did we decide on rank fusion"
+hoppr search "papers that disagree about scaling laws"
 hoppr query  "..."                         # alias
 ```
 
@@ -100,9 +113,8 @@ hoppr index --full           # pull all history, not the default window
 ```
 
 `hoppr init` creates the store and offers to do this straight away. `hoppr index` is the
-same thing on demand, for after you have edited the config. Three separate commands to get
-going was two too many — someone edits `hoppr.toml`, runs the obvious one, and finds an
-empty store because they ran the second step and not the first.
+same pipeline on demand, which is useful after changing the configuration. The individual
+`sync`, `curate`, and `embed` commands remain available when you need to run one stage.
 
 ## Curating
 
@@ -143,7 +155,7 @@ hoppr skills why <slug>            # the exact sessions it was mined from
 hoppr skills review                # accept/reject interactively
 hoppr skills accept <slug...>      # non-interactive, for pipes and CI
 hoppr skills reject <slug...>      # remembered; not re-proposed
-hoppr skills install <slug> [--project|--user|--target <dir>]
+hoppr skills install <slug> [--project|--target <dir>]
 hoppr skills uninstall <slug>
 hoppr skills audit                 # score every skill against the promotion gate
 hoppr skills resolver              # regenerate the dispatcher table
@@ -214,7 +226,7 @@ hoppr browse                         # interactive terminal browser
 
 ```bash
 hoppr doctor            # store, git, daemon, MCP wiring, model tiers, key files
-hoppr setup             # download the local embedding model (explicit, never silent)
+hoppr setup             # detect agent logs and download the local embedding model
 hoppr embed [-n] [--batch]
 hoppr reindex [--full] [--forget-embeddings]
 hoppr retry --failed    # re-arm rows that hit the terminal failure cap
@@ -232,11 +244,11 @@ and recompute vectors.
 
 | question | home | inherited? |
 |---|---|---|
-| who am I — provider, model, embedder, git mode | `~/.hoppr/hoppr.toml` | ✅ |
-| what are my keys | `~/.hoppr/.env`, `<store>/.env` | ✅, store wins |
-| what is this hoppr — source, curation preset | `<store>/hoppr.toml` | ❌ never |
-| which files — scope | `.hopprignore` beside the data | ❌ |
-| how curation thinks — prompts, table schemas | files under `curated/` | ❌ |
+| provider, model, embedder, and Git defaults | `~/.hoppr/hoppr.toml` | ✅ |
+| API keys | `~/.hoppr/.env`, `<store>/.env` | ✅, store wins |
+| source and curation preset | `<store>/hoppr.toml` | ❌ never |
+| indexed and model-accessible files | `.hopprignore` beside the data | ❌ |
+| prompts and table schemas | files under `curated/` | ❌ |
 
 ```
 defaults < ~/.hoppr/hoppr.toml < <store>/hoppr.toml < HOPPR_* env < CLI flags

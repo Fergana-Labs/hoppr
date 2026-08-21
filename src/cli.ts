@@ -18,7 +18,7 @@ const program = new Command()
 
 program
   .name('hoppr')
-  .description('A local-first hopper for agent memory')
+  .description('Turn any folder into queryable, structured context')
   .version('0.0.1')
   .option('-H, --hopper <name>', 'which hoppr to use (default: $HOPPR_HOPPER or "default")')
   .option('--store <path>', 'explicit store path, bypassing the hoppr registry')
@@ -36,7 +36,7 @@ const wantJson = () => program.opts<{ json?: boolean }>().json === true
 // ── init ──────────────────────────────────────────────────────────
 program
   .command('init')
-  .description('create a hoppr here — like `git init`, but for what you know')
+  .description('create .hoppr here and index this folder — like `git init`')
   .argument('[path]', 'store root (default: ./.hoppr)')
   .option('--global', `create it in ${'~/.hoppr'}/<name> instead of here`)
   .option('--name <name>', 'what to call it (default: this directory)')
