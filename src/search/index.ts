@@ -22,6 +22,15 @@ export interface SearchHit {
   snippet: string
   /** Why this hit ranked where it did — surfaced by `--explain`. */
   why: { ranks: Record<string, number>; base: number; boosted: number }
+  /**
+   * Where to actually look: the original file for a reference capture, the
+   * page under curated/ otherwise.
+   *
+   * `raw:01M0GYNX2MFQH7FQESEQC6D5MP` is the primary key and tells a reader
+   * nothing. A path is the thing you open, and most terminals make it
+   * clickable.
+   */
+  path?: string
   /** Set when a raw capture matched but a curated page superseded it. */
   matchedInSource?: string
 }
@@ -148,6 +157,7 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
     updated: s.doc.updated,
     score: s.boosted,
     snippet: snippetFor(s.doc.body || s.doc.summary, parsed.text, cfg.search.max_snippet_chars),
+    path: pathFor(db, s.doc),
     why: { ranks: s.fused.ranks, base: s.fused.score, boosted: s.boosted },
     matchedInSource: s.matchedInSource,
   }))
@@ -162,6 +172,28 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
       mode,
     },
   }
+}
+
+/**
+ * The file behind a hit.
+ *
+ * A reference capture points at your own file, which is what you want to open.
+ * Everything else lives under the store, so the store-relative path is the
+ * honest answer.
+ */
+function pathFor(db: Db, doc: DocRow): string | undefined {
+  if (doc.tier === 'raw') {
+    const row = db
+      .prepare<{ external_path: string | null; path: string | null }>(
+        'SELECT external_path, path FROM raw WHERE id = :id',
+      )
+      .get({ id: doc.ref_id })
+    return row?.external_path ?? row?.path ?? undefined
+  }
+  const row = db
+    .prepare<{ path: string }>('SELECT path FROM wiki WHERE id = :id')
+    .get({ id: doc.ref_id })
+  return row?.path
 }
 
 function loadDocs(db: Db, ids: string[]): Map<string, DocRow> {

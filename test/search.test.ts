@@ -276,3 +276,38 @@ describe('snippets', () => {
     expect(snippetFor('before\n```\nlots of code\n```\nafter', 'before', 400)).toContain('[code]')
   })
 })
+
+describe('readable results', () => {
+  it('decodes escaped JSON so a .jsonl snippet can be skimmed', async () => {
+    const { unescapeJsonish } = await import('../src/search/snippet.ts')
+    // A transcript surfaced as `\\u201cTypes of ML Papers\\u201d` — the file's
+    // contents, and unreadable as a search result.
+    const raw = String.raw`go_back()\\nThought: We\\u2019re back. The \\u201cTypes\\u201d link`
+    const out = unescapeJsonish(raw)
+    expect(out).toContain('We’re back')
+    expect(out).toContain('“Types”')
+    expect(out).not.toContain('\\u')
+  })
+
+  it('leaves ordinary prose untouched', async () => {
+    const { unescapeJsonish } = await import('../src/search/snippet.ts')
+    const prose = 'RRF with k=60 beat weighted blending; see the "ranking" note.'
+    expect(unescapeJsonish(prose)).toBe(prose)
+  })
+
+  it('disambiguates a filename that repeats across a tree', async () => {
+    const { titleFor } = await import('../src/connectors/dir.ts')
+    // A benchmark run leaves dozens of transcript.jsonl, and eight results all
+    // called "transcript" have told you nothing.
+    expect(
+      titleFor(
+        '/x/r21/baseline-skill/00aa905a/transcript.jsonl',
+        'r21/baseline-skill/00aa905a/transcript.jsonl',
+      ),
+    ).toBe('transcript — baseline-skill/00aa905a')
+    // A distinctive name is left alone.
+    expect(titleFor('/x/attention-is-all-you-need.pdf', 'attention-is-all-you-need.pdf')).toBe(
+      'attention-is-all-you-need',
+    )
+  })
+})

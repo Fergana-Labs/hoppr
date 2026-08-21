@@ -38,6 +38,27 @@ const wantJson = () => program.opts<{ json?: boolean }>().json === true
  * One rewritten line on stderr, so a long pass shows progress without
  * scrolling. stderr because stdout may be piped into something.
  */
+/**
+ * A curate pass handles one batch, not the corpus. Without this the run ends
+ * on a success line while thousands of captures are still waiting, which reads
+ * as finished.
+ */
+async function reportRemaining(h: Hoppr): Promise<void> {
+  const left = await h.pendingCurateCount().catch(() => 0)
+  if (left === 0) return
+  const { curateEstimate } = await import('./onboard.ts')
+  const { isSubprocessProvider } = await import('./llm/index.ts')
+  const llm = await h.llm('fast').catch(() => undefined)
+  const est = curateEstimate(left, {
+    batchSize: h.config.curate.fast_batch,
+    subprocess: llm ? isSubprocessProvider(llm.id) : true,
+  })
+  console.log(c.yellow(`  ${left} still uncurated`) + c.dim(` — ${est.line}`))
+  console.log(
+    c.dim('  `hoppr curate` for another pass, or `hoppr daemon start` to work through them'),
+  )
+}
+
 const progressLine = (msg: string) => {
   if (!process.stderr.isTTY) return
   process.stderr.write(`\r  ${c.dim(msg.slice(0, 72).padEnd(74))}`)
@@ -158,6 +179,9 @@ program
                 const st = await h0.curate({ onProgress: progressLine })
                 process.stderr.write('\r')
                 console.log(`${c.green('curated')} ${st.logLine}`)
+                // One pass is a batch, not the whole corpus. Saying nothing
+                // here reads as "finished" when thousands are still waiting.
+                await reportRemaining(h0)
               } else {
                 console.log(c.dim('  skipped — `hoppr curate` when you are ready'))
               }
@@ -386,8 +410,10 @@ program
     for (const hit of res.hits) {
       const badge = hit.tier === 'curated' ? c.cyan(hit.kind) : c.dim(hit.kind)
       console.log(`${c.bold(hit.title || '(untitled)')}  ${badge}`)
+      // The PATH, not the primary key: `raw:01M0GYNX2MFQ…` tells a reader
+      // nothing, and a path is both meaningful and clickable in most terminals.
       console.log(
-        `  ${c.dim(hit.id)}${hit.tags.length ? c.dim(`  #${hit.tags.join(' #')}`) : ''}${
+        `  ${c.dim(hit.path ?? hit.id)}${hit.tags.length ? c.dim(`  #${hit.tags.join(' #')}`) : ''}${
           hit.matchedInSource ? c.dim('  [matched in source]') : ''
         }`,
       )
@@ -602,6 +628,7 @@ program
   .option('--rebuild', 'discard curated pages and regenerate them from raw')
   .option('-n, --limit <n>', 'stop after this many captures')
   .option('--dry-run', 'show what would happen without writing or committing')
+  .option('--all', 'keep going until nothing is left, not just one batch')
   .action(async (o: { limit?: string; dryRun?: boolean; rebuild?: boolean }) => {
     const h = await ctx()
     const st = await h.curate({

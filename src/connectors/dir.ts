@@ -95,7 +95,7 @@ export const dirConnector: Connector = {
       // than creating a second one.
       externalId: `dir:${source.key}`,
       kind: 'file',
-      title: basename(source.key, extname(source.key)),
+      title: titleFor(source.key, rel),
       body: text,
       createdAt: new Date(s.birthtimeMs || s.mtimeMs),
       updatedAt: new Date(s.mtimeMs),
@@ -226,6 +226,37 @@ export async function extractFileText(path: string, ctx?: ConnectorContext): Pro
     return stripHtml(raw)
   }
   return readFile(path, 'utf8').catch(() => '')
+}
+
+/**
+ * A filename that repeats across a tree is not a title.
+ *
+ * A benchmark run leaves dozens of `transcript.jsonl`, and a search that
+ * returns eight results all called "transcript" has told you nothing. Where the
+ * name is generic, the enclosing directories are the part that identifies it.
+ */
+const GENERIC_NAMES = new Set([
+  'transcript',
+  'index',
+  'readme',
+  'data',
+  'output',
+  'result',
+  'results',
+  'log',
+  'notes',
+  'main',
+  'summary',
+  'config',
+  'metadata',
+])
+
+export function titleFor(absPath: string, relPath: string): string {
+  const stem = basename(absPath, extname(absPath))
+  if (!GENERIC_NAMES.has(stem.toLowerCase())) return stem
+  const parts = relPath.split('/').slice(0, -1).filter(Boolean)
+  const context = parts.slice(-2).join('/')
+  return context ? `${stem} — ${context}` : stem
 }
 
 export function stripHtml(html: string): string {

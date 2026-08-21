@@ -137,13 +137,15 @@ export class ClaudeCliProvider implements LlmProvider {
       child.on('close', (code) => {
         clearTimeout(timer)
         if (code === 0) return resolve(out)
-        // stderr also carries warnings on success paths, so it only decides the
-        // KIND of failure — never whether one happened.
-        const transient = /rate limit|overloaded|503|429/i.test(err)
+        // In `--output-format json` the CLI reports its own errors on STDOUT,
+        // so reporting stderr alone produced "exited 1: no stderr" — true, and
+        // no help at all to someone with eight failures and no idea why.
+        const detail = describeCliFailure(out, err)
+        const transient = /rate limit|overloaded|503|429|usage limit/i.test(`${err}${out}`)
         reject(
           new HopprError(
             transient ? 'transient' : 'terminal',
-            `claude CLI exited ${code}: ${(err || 'no stderr').slice(0, 300)}`,
+            `claude CLI exited ${code}: ${detail}`,
           ),
         )
       })
@@ -161,4 +163,19 @@ export class ClaudeCliProvider implements LlmProvider {
     })
     return { value, usage: first.usage }
   }
+}
+
+/** Pull a usable reason out of whichever stream the CLI used. */
+function describeCliFailure(stdout: string, stderr: string): string {
+  const trimmed = stdout.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const j = JSON.parse(trimmed) as { result?: unknown; error?: unknown; message?: unknown }
+      const msg = j.error ?? j.message ?? j.result
+      if (msg) return String(typeof msg === 'string' ? msg : JSON.stringify(msg)).slice(0, 300)
+    } catch {
+      // Not JSON after all; fall through to the raw text.
+    }
+  }
+  return (stderr.trim() || trimmed || 'no output on either stream').slice(0, 300)
 }

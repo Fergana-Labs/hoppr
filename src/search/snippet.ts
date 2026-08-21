@@ -7,7 +7,7 @@
  * one output shape for the CLI, the MCP tools, and the HTTP API.
  */
 export function snippetFor(body: string, query: string, maxChars: number): string {
-  const text = collapse(body)
+  const text = collapse(unescapeJsonish(body))
   if (!text) return ''
   if (text.length <= maxChars) return text
 
@@ -69,4 +69,25 @@ function backToBoundary(text: string, at: number): number {
 function forwardToBoundary(slice: string): number {
   const sp = slice.lastIndexOf(' ')
   return sp > slice.length - 40 && sp > 0 ? sp : slice.length
+}
+
+/**
+ * Make a JSON-shaped body readable in a one-line snippet.
+ *
+ * A `.jsonl` transcript surfaces as `\\u201cTypes of MachineLearning
+ * Papers\\u201d` and `\\nThought:` — technically the file's contents and
+ * unreadable as a search result. Decoding the escapes costs nothing and is the
+ * difference between a snippet you can skim and one you skip.
+ *
+ * Deliberately only unescapes; it does not parse. A malformed or truncated
+ * JSON line still has to render as something.
+ */
+export function unescapeJsonish(s: string): string {
+  if (!/\\[un"]/.test(s)) return s
+  return s
+    .replace(/\\{2,}/g, '\\')
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(Number.parseInt(h, 16)))
+    .replace(/\\n/g, ' ')
+    .replace(/\\t/g, ' ')
+    .replace(/\\"/g, '"')
 }
