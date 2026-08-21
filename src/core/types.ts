@@ -1,7 +1,7 @@
 /** How a capture arrived. `connector:<id>` for harness sync. */
 /** Where a capture came IN through — not what it is. `import` is a bulk load
  *  from an export file (browser bookmarks, a platform data archive). */
-export type SourceKind = 'cli' | 'inbox' | 'mcp' | 'http' | 'import' | `connector:${string}`
+export type SourceKind = 'cli' | 'mcp' | 'http' | 'import' | `connector:${string}`
 
 /** What a raw capture IS. */
 export type RawKind = 'text' | 'url' | 'file' | 'session'

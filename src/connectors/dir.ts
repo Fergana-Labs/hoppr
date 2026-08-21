@@ -5,6 +5,7 @@ import { glob } from 'tinyglobby'
 import { contentHash } from '../core/hash.ts'
 import { IMAGE_EXTS } from '../intake/extract/image.ts'
 import { LEGACY_OFFICE_EXTS, OFFICE_EXTS } from '../intake/extract/office.ts'
+import { shadowIndex } from '../intake/extract/shadow.ts'
 import { isIgnored, loadIgnoreRules } from './ignore.ts'
 import type {
   Connector,
@@ -170,6 +171,11 @@ export async function extractFileText(path: string, ctx?: ConnectorContext): Pro
   const on = (ctx?.config.extract as Record<string, boolean> | undefined) ?? {}
   const enabled = (key: string) => on[key] !== false
   if (IMAGE_EXTS.includes(ext)) {
+    // Reuse an extraction we already paid for. `reindex` is meant to be free,
+    // and re-OCRing every image is neither free nor deterministic.
+    const shadow = ctx?.layout ? (await shadowIndex(ctx.layout)).get(path) : undefined
+    if (shadow) return shadow
+
     if (!enabled('ocr') && !enabled('image_llm')) {
       return `[image: ${basename(path)}]\n\nImage extraction is disabled. Indexed by name and path.`
     }

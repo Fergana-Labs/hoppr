@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { rename } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 import { Cron } from 'croner'
 import { Hoppr } from '../core/hoppr.ts'
 import { embeddingsEnabled } from '../core/profiles.ts'
@@ -175,30 +174,6 @@ export async function runDaemon(opts: DaemonOptions = {}): Promise<() => Promise
         m.busy = false
       }
     }
-
-    // Inbox: every hoppr has one, even a reference-mode folder hoppr — you can
-    // still throw something in by hand.
-    const inboxDir = join(h.layout.root, h.config.intake.inbox)
-    await ensureDir(inboxDir)
-    const inbox = chokidar.watch(inboxDir, {
-      ignoreInitial: false,
-      awaitWriteFinish: { stabilityThreshold: 400, pollInterval: 100 },
-    })
-    inbox.on('add', async (path: string) => {
-      if (basename(path).startsWith('.')) return
-      try {
-        const rec = await h.add({ file: path, source: 'inbox' })
-        await rename(path, join(h.layout.blobs, basename(path))).catch(async () => {
-          const { unlink } = await import('node:fs/promises')
-          await unlink(path).catch(() => {})
-        })
-        log(`[${name}] inbox: ${basename(path)} -> ${rec.id}`)
-        nudge('inbox')
-      } catch (e) {
-        log(`[${name}] inbox: ${basename(path)} failed: ${(e as Error).message}`)
-      }
-    })
-    m.stops.push(() => inbox.close())
 
     // A folder hoppr should react to its own folder, not merely poll it.
     // Polling was the only mechanism, so an edit waited up to 30s to be

@@ -103,9 +103,6 @@ export class Layout {
   get gitignore() {
     return join(this.root, '.gitignore')
   }
-  get inbox() {
-    return join(this.root, 'inbox')
-  }
 
   // ── TIER 1: raw ──────────────────────────────────────────────────
   get raw() {
@@ -264,7 +261,6 @@ export const PAGE_DIRS: Record<string, string> = {
 /** Directories created by `hoppr init`. */
 export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
   return [
-    l.inbox,
     ...(opts.raw === false ? [] : [l.raw]),
     l.wiki,
     ...Object.values(PAGE_DIRS).map((d) => join(l.wiki, d)),
@@ -279,13 +275,10 @@ export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
 
 /**
  * Only the two tracked tiers go into git. Everything here is rebuildable:
- * .index in seconds, views from curated/, inbox is transient, state is runtime.
+ * .index rebuilds in seconds from the two tiers that are tracked.
  */
 export const GITIGNORE = `# hoppr — rebuildable, do not track
 .index/
-views/
-inbox/
-state/
 
 # Secrets. hoppr reads keys from here; they must never be committed, because
 # removing a secret from a tracked file does not remove it from history.

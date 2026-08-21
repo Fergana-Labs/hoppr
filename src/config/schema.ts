@@ -111,7 +111,6 @@ export const ConfigSchema = z.object({
 
   intake: z
     .object({
-      inbox: z.string().default('inbox'),
       /** Scrub credentials at the extraction boundary. On by default: hoppr
        *  reads agent logs, and those contain pasted keys. */
       redact: z.boolean().default(true),

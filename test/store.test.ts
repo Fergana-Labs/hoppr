@@ -37,7 +37,14 @@ describe('init', () => {
     const { layout, cleanup } = await tempStore()
     try {
       const gi = await readFile(layout.gitignore, 'utf8')
-      for (const p of ['.index/', 'views/', 'inbox/', 'state/']) expect(gi).toContain(p)
+      // Only `.index/` is rebuildable now. `views/`, `inbox/` and `state/`
+      // were listed here while nothing ever wrote to them — the views
+      // generator was never built, the daemon's pidfile moved to ~/.hoppr when
+      // one process took over every hoppr, and the inbox was a drop zone from
+      // before the watched folder existed.
+      expect(gi).toContain('.index/')
+      expect(gi).toContain('.env')
+      for (const gone of ['views/', 'inbox/', 'state/']) expect(gi).not.toContain(gone)
       expect(gi).not.toContain('raw/')
       expect(gi).not.toContain('curated/')
     } finally {

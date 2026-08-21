@@ -51,6 +51,8 @@ export interface ConnectorContext {
   /** Only pull sessions touched since this instant. */
   since?: number
   log: (msg: string) => void
+  /** The store, so an extractor can find work it has already done. */
+  layout?: import('../store/layout.ts').Layout
   /**
    * Resolved lazily, and only when a connector actually needs it — images are
    * the one input whose TEXT cannot be read without a model. Undefined when no

@@ -192,6 +192,7 @@ export async function syncOne(
           since,
           log: (m) => opts.onProgress?.(`${c.id}: ${m}`),
           llm: () => visionLlm(cfg, opts.secrets ?? {}),
+          layout: l,
         })
         cursor = res.cursor
         for (const item of res.items) {
@@ -384,6 +385,9 @@ async function upsertCapture(
       '',
     ].join('\n')
     await writeIfChanged(path, `${front}${item.body.trim()}\n`)
+    // A sweep that writes shadows must see them on the next pass.
+    const { resetShadowIndex } = await import('../intake/extract/shadow.ts')
+    resetShadowIndex(l.root)
   }
 
   // ── copy mode ────────────────────────────────────────────────────
