@@ -10,6 +10,9 @@ import { parseLine, tailLines } from './tail.ts'
 import type { Connector, ConnectorSource, PullResult, TailCursor } from './types.ts'
 import { isLive } from './types.ts'
 
+/** A cap applied at capture time is permanent, so the default is none. */
+const NO_LIMIT = Number.MAX_SAFE_INTEGER
+
 interface OcLine {
   type?: string
   id?: string
@@ -54,8 +57,9 @@ export const openclaw: Connector = {
     const read = await tailLines(source.key, cursor)
     if (read.lines.length === 0) return { items: [], cursor: read.cursor, done: read.done }
 
-    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
-    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
+    // 0 (the default) means keep everything: these limits are permanent.
+    const maxChars = Number(ctx.config.transcript_max_chars) || NO_LIMIT
+    const toolCap = Number(ctx.config.tool_result_max_chars) || NO_LIMIT
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []

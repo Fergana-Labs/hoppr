@@ -121,18 +121,24 @@ export const ConfigSchema = z.object({
        * How much of a rendered transcript to keep, and how much of each tool
        * result inside it.
        *
-       * These are STORAGE limits, applied once at capture and therefore
-       * permanent. They were 60,000 and 400, and the 400 was the damaging one:
-       * a tool result is where a command failed and what it said, which is the
-       * entire payload for skill mining — "the failures are the point" is not
-       * true of a result cut off at 400 characters.
+       * 0 means NO LIMIT, and that is the default.
        *
-       * Curation has its own, much smaller budget (`curate.max_raw_chars`)
-       * applied at READ time, so keeping more here costs disk rather than
-       * tokens.
+       * These are STORAGE limits, applied once at capture and therefore
+       * permanent — which is exactly why they should not exist. A tool result
+       * is where a command failed and what it printed, the entire payload for
+       * skill mining; "the failures are the point" is not true of a result cut
+       * off at 400 characters, which is what these used to be.
+       *
+       * Keeping everything is affordable because the reduction was never
+       * coming from truncation. A 42.9 MB Claude Code session renders to
+       * 0.16 MB with nothing dropped — 268x — because the JSONL is
+       * overwhelmingly duplicate representations of the same turns.
+       *
+       * Curation has its own much smaller budget (`curate.max_raw_chars`)
+       * applied at READ time, so this costs disk rather than tokens.
        */
-      transcript_max_chars: z.number().int().positive().default(400_000),
-      tool_result_max_chars: z.number().int().positive().default(8_000),
+      transcript_max_chars: z.number().int().nonnegative().default(0),
+      tool_result_max_chars: z.number().int().nonnegative().default(0),
       redact_patterns: z.array(z.string()).default([]),
       debounce_ms: z.number().int().positive().default(20_000),
       max_wait_ms: z.number().int().positive().default(120_000),
@@ -312,7 +318,7 @@ export const ConfigSchema = z.object({
 
   search: z
     .object({
-      default_scope: z.enum(['curated', 'raw', 'all']).default('curated'),
+      default_scope: z.enum(['curated', 'raw', 'all']).default('all'),
       limit: z.number().int().positive().default(10),
       tier_boost: z.record(z.string(), z.number()).default({ curated: 1.5 }),
       kind_boost: z

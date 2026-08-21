@@ -57,6 +57,7 @@ my-folder/               the folder is the raw tier; your files stay put
     ├── curated/
     │   ├── wiki/        source pages + concepts + wikilinks
     │   ├── tables/      structured JSONL with source traces
+    │   ├── graph/       typed entities + cited edges as grep-friendly JSONL
     │   ├── skills/      optional procedures distilled from agent logs
     │   └── prompts/     editable curation instructions
     ├── schemas/         graph / wiki / skills, when they outgrow one file
@@ -70,8 +71,9 @@ For a directory source, the folder itself is the raw tier; there is no duplicate
 directory. `.hoppr/raw/` is used for durable captures from connector-owned sources such
 as coding-agent session histories.
 
-- **Query everything together.** BM25 and local vector search are fused with RRF. Results
-  can mix original files, wiki pages, table rows, graph entities, and skills.
+- **Search everything together.** BM25 and local vector search are fused with RRF. Results
+  can mix original files, wiki pages, table rows, and skills; \`--scope curated\` and
+  \`--scope raw\` narrow the search when you need them.
 - **Build a wiki from a folder.** Fast passes write source pages; deep passes merge
   recurring ideas into concepts and converge the tag vocabulary.
 - **Extract rows, not just summaries.** Define a table once and new matching captures
@@ -117,7 +119,7 @@ Markdown snapshot of each session because harness-owned logs may later change or
 
 ```bash
 hoppr search "papers that disagree about scaling laws"
-hoppr search "the receipt for the monitor" --scope all
+hoppr search "the receipt for the monitor"       # source + generated artifacts by default
 hoppr search "whiteboard photo about onboarding" --since 30d
 hoppr search "the flaky test fix involving fake timers" --explain
 ```
@@ -136,6 +138,11 @@ hoppr mcp status --probe
 
 The MCP server is a stdio process launched by the client. It opens SQLite directly, so it
 does not depend on the daemon.
+
+Agents do not need MCP to use a hoppr. The store is a normal directory: they can \`rg\`
+the Markdown wiki, read source paths, or inspect \`curated/graph/*.jsonl\` directly. MCP
+adds ranked search and graph traversal; it is not a filesystem abstraction or security
+boundary.
 
 ## Start with a preset, then change anything
 
@@ -178,6 +185,12 @@ The wiki follows
 including Markdown pages, frontmatter, `[[wikilinks]]`, a generated catalog, and an
 append-only operation log. Open `curated/wiki/` directly in Obsidian or let an agent
 navigate it as files.
+
+The optional knowledge graph follows the same rule. `hoppr graph build` writes typed
+entities to `curated/graph/nodes.jsonl` and cited relationships to
+`curated/graph/edges.jsonl`. Search those files with `rg`, use `hoppr graph show <name>`
+for one-hop traversal, or let an MCP agent call `hoppr_graph_search` and
+`hoppr_graph_show`. Every edge carries an evidence quote and source id.
 
 <details>
 <summary><strong>See the wiki, tags, tables, and status dashboard</strong></summary>
@@ -319,7 +332,7 @@ accidental exposure but cannot make an untrusted corpus safe to publish.
 
 ```text
 hoppr init | setup | doctor
-hoppr add | sync | query | get | related
+hoppr add | sync | search | get | related
 hoppr index | curate | deep | reindex | embed | catalog
 hoppr tables | table | sql | graph
 hoppr skills | prompts | journal | undo

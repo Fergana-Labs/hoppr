@@ -19,14 +19,13 @@ const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] })
  * parse input, call core, format. There is deliberately no logic in this file,
  * because a second implementation is a second thing to keep correct.
  *
- * Descriptions carry what JSON Schema cannot — when to reach for a tool, what
- * a silent empty result means, and which tool to call first. That prose is the
- * actual interface an agent programs against.
+ * The store's files are the primary interface. These tools add ranked search
+ * and graph traversal when that is more convenient than rg/grep.
  */
 export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean } = {}) {
   // Resolve a hoppr per call, cached. `pinned` means this server was installed
-  // for exactly one hoppr, so the selector is hidden and cross-hoppr access is
-  // impossible — isolation at install time, selection at call time.
+  // for exactly one hoppr, so tool calls always target it. This is routing,
+  // not a filesystem security boundary: agents can inspect stores directly.
   const cache = new Map<string, Hoppr>([[defaultHoppr.name, defaultHoppr]])
   const pinned = opts.pinned === true
 
@@ -51,8 +50,8 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
       .optional()
       .describe(
         pinned
-          ? `Ignored — this server is pinned to the '${defaultHoppr.name}' hoppr.`
-          : 'Which hoppr to use. Each hoppr is a separate, isolated store with its own ' +
+          ? `Ignored — these tools always target the '${defaultHoppr.name}' hoppr.`
+          : 'Which hoppr to use. Each hoppr is a separate store with its own ' +
               'subject. Call hoppr_list first if you do not know which one applies. ' +
               `Defaults to '${defaultHoppr.name}'.`,
       ),
@@ -70,11 +69,12 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
     defaultHoppr.config.wiki.orientation || defaultHoppr.config.hopper.description || ''
 
   const header = pinned
-    ? `hoppr '${defaultHoppr.name}'${orientation ? `: ${orientation}` : ''}`
+    ? `hoppr '${defaultHoppr.name}'${orientation ? `: ${orientation}` : ''}. Its store is ` +
+      `${defaultHoppr.layout.root}; agents may inspect its files directly.`
     : "hoppr holds one or more isolated knowledge stores ('hoppers'), each pointed at a " +
-      'different source: a folder of documents, or the transcripts of past AI coding ' +
-      'sessions. Call hoppr_list FIRST to see which hoppers exist and what each is for, ' +
-      'then pass that name to the other tools.'
+      'different source folder. Agents may inspect every store directly on the filesystem. ' +
+      'Call hoppr_list FIRST to see their paths and subjects, then pass the relevant name ' +
+      'to indexed tools when useful.'
 
   const server = new McpServer(
     { name: `hoppr${pinned ? `:${defaultHoppr.name}` : ''}`, version: '0.0.1' },
@@ -100,6 +100,7 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
         return json(
           rows.map((r) => ({
             hopper: r.name,
+            root: r.root,
             when_to_use: r.description || `Contents of ${r.sourceLabel}`,
             holds: r.sourceLabel,
             profile: r.profile,
@@ -127,7 +128,9 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
         scope: z
           .enum(['curated', 'raw', 'all'])
           .optional()
-          .describe('curated (default) = distilled pages; raw = original captures; all = both'),
+          .describe(
+            'all (default) = source and curated; curated = generated artifacts; raw = source material',
+          ),
         kind: z
           .string()
           .optional()
@@ -217,7 +220,8 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
     {
       title: 'Read the original capture',
       description:
-        'Read the raw, uncurated bytes behind a page — the actual transcript, article, or note. ' +
+        'Read the raw, uncurated capture behind a page — a normalized session snapshot, ' +
+        'article, or note. ' +
         'Use when a summary is not enough and you need ground truth. Capture ids come from ' +
         'hoppr_get (its "sources") or from a "raw:" id in search results.',
       inputSchema: { ...hopperArg, raw_id: z.string(), max_chars: z.number().int().optional() },
@@ -346,6 +350,91 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
   )
 
   server.registerTool(
+    'hoppr_graph_search',
+    {
+      title: 'Search graph entities',
+      description:
+        'Find typed entities in the optional knowledge graph by name and/or type. The same ' +
+        'data is available as curated/graph/nodes.jsonl for direct rg/grep. Use ' +
+        'hoppr_graph_show after selecting a node to traverse its cited relationships.',
+      inputSchema: {
+        ...hopperArg,
+        query: z.string().optional().describe('Partial entity name; omit to list top entities'),
+        type: z.string().optional().describe('Configured entity type'),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+    },
+    async (a) => {
+      const hp = await pick(a.hopper)
+      if (!hp.config.retrieval.graph) {
+        return json({
+          enabled: false,
+          note: 'The graph is off. Set [retrieval] graph = true, then run hoppr graph build.',
+        })
+      }
+      const { findNodes } = await import('../organize/graph.ts')
+      const db = await hp.db()
+      return json({
+        enabled: true,
+        root: hp.layout.graph,
+        entity_types: hp.config.graph.entity_types,
+        relations: hp.config.graph.relations,
+        nodes: findNodes(db, a.query, a.type?.toLowerCase(), a.limit ?? 40),
+      })
+    },
+  )
+
+  server.registerTool(
+    'hoppr_graph_show',
+    {
+      title: 'Traverse one graph entity',
+      description:
+        'Resolve an entity by name and return every relationship one hop away, including the ' +
+        'evidence quote and source id. Use hoppr_source on raw_id to inspect the source.',
+      inputSchema: {
+        ...hopperArg,
+        name: z.string().describe('Entity name or graph node id'),
+        type: z.string().optional().describe('Configured entity type, useful for ambiguous names'),
+        limit: z.number().int().min(1).max(200).optional(),
+      },
+    },
+    async (a) => {
+      const hp = await pick(a.hopper)
+      if (!hp.config.retrieval.graph) {
+        return json({
+          enabled: false,
+          note: 'The graph is off. Set [retrieval] graph = true, then run hoppr graph build.',
+        })
+      }
+      const { findNodes, neighbours } = await import('../organize/graph.ts')
+      const db = await hp.db()
+      const candidates = findNodes(db, a.name, a.type?.toLowerCase(), 20)
+      const exact = candidates.find(
+        (node) =>
+          node.id === a.name ||
+          (node.name.toLowerCase() === a.name.toLowerCase() &&
+            (!a.type || node.type === a.type.toLowerCase())),
+      )
+      const node = exact ?? (candidates.length === 1 ? candidates[0] : undefined)
+      if (!node) {
+        return json({
+          found: false,
+          candidates,
+          note: candidates.length
+            ? 'More than one entity matched; retry with its exact name and type.'
+            : 'No graph entity matched. Try hoppr_graph_search or grep curated/graph/nodes.jsonl.',
+        })
+      }
+      return json({
+        found: true,
+        node,
+        neighbours: neighbours(db, node.id, a.limit ?? 50),
+        hint: 'Each relationship includes raw_id; use hoppr_source to verify it.',
+      })
+    },
+  )
+
+  server.registerTool(
     'hoppr_recent',
     {
       title: 'What landed lately',
@@ -407,11 +496,19 @@ export async function buildServer(defaultHoppr: Hoppr, opts: { pinned?: boolean 
       const hp = await pick(a.hopper)
       const s = await hp.stats()
       const pages = await listPages(hp.layout).catch(() => [])
+      const db = await hp.db()
+      const graph = db
+        .prepare<{ nodes: number; edges: number }>(
+          `SELECT (SELECT count(*) FROM graph_nodes) AS nodes,
+                  (SELECT count(*) FROM graph_edges) AS edges`,
+        )
+        .get()
       return json({
         hopper: hp.name,
         root: hp.layout.root,
         ...s,
         wiki_pages: pages.length,
+        graph: { enabled: hp.config.retrieval.graph, ...graph, path: hp.layout.graph },
         driver: hp.driver,
         vector_search: hp.vectorAvailable,
         llm: (await hp.llm())?.id ?? 'none',

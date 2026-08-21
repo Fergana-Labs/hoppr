@@ -18,6 +18,7 @@ describe('config', () => {
     expect(d.git.mode).toBe('auto')
     expect(d.wiki.layout).toBe('karpathy')
     expect(d.embed.dim).toBe(384)
+    expect(d.search.default_scope).toBe('all')
     expect(d.search.tier_boost.curated).toBe(1.5)
   })
 

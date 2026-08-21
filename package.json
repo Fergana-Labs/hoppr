@@ -73,6 +73,7 @@
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.2.0",
+    "@letta-ai/trajectory": "^0.3.0",
     "@napi-rs/canvas": "^1.0.7",
     "mammoth": "^1.12.1",
     "tesseract.js": "^7.0.0",

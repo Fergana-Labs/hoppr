@@ -41,8 +41,8 @@ grep -rq 'redacted:anthropic-key' "$STORE/raw" && ok "redaction marker left in p
 echo "── search ──"
 "${HOPPR[@]}" setup >/dev/null 2>&1
 "${HOPPR[@]}" embed >/dev/null 2>&1
-LEX=$("${HOPPR[@]}" --json search 'rank fusion' --scope all 2>/dev/null | jq_ 'print(len(d["data"])>0)')
-check "lexical search finds a hit" "$LEX" "True"
+LEX=$("${HOPPR[@]}" --json search 'rank fusion' 2>/dev/null | jq_ 'print(len(d["data"])>0)')
+check "search defaults to all and finds a source hit" "$LEX" "True"
 # "reciprocal"/"blending" share no words with the query; only the vector arm can reach them.
 SEM=$("${HOPPR[@]}" --json search 'how do I combine two different rankers' --scope all 2>/dev/null | jq_ 'print(any("blending" in (h["title"]+h["snippet"]).lower() for h in d["data"]))')
 check "semantic search reaches a doc with no shared keywords" "$SEM" "True"
@@ -87,7 +87,7 @@ for line in sys.stdin:
     except: continue
     if d.get('id')==2: print(len(d['result']['tools'])); break
 ")
-check "mcp server exposes 11 tools (10 + hoppr_list)" "$TOOLS" "11"
+check "mcp server exposes 13 tools (12 + hoppr_list)" "$TOOLS" "13"
 
 echo "── degradation ──"
 HOPPR_NO_LLM=1 "${HOPPR[@]}" search 'fusion' --scope all >/dev/null 2>&1 && ok "search works with no LLM configured" || bad "search needs an LLM"

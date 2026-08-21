@@ -15,6 +15,20 @@ export interface IngestCandidate {
   title?: string
   /** Rendered, human-readable body stored as the durable capture. */
   body: string
+  /**
+   * Structured form of the same session, stored ALONGSIDE the readable body.
+   *
+   * The markdown is what gets indexed and what a person reads. It is also
+   * flat: rendering to prose throws away tool-call ids, per-record timestamps
+   * and role typing — the exact structure the trajectory format exists to
+   * preserve, and the structure that says WHICH result came from WHICH call.
+   *
+   * Measured across 25 random sessions: native JSONL 2.57 MB → trajectory
+   * 0.65 MB → markdown 0.09 MB. Keeping the middle step costs 7x the markdown
+   * and is still 4x smaller than the original, which is a cheap price for not
+   * having to re-parse a harness format that may no longer exist.
+   */
+  structured?: { format: string; content: string }
   createdAt: Date
   updatedAt: Date
   project?: string

@@ -43,7 +43,9 @@ export function renderTranscript(
 
   const body: string[] = ['', '## Transcript', '']
   for (const t of turns) {
-    if (t.role === 'user') body.push(`**user:** ${oneLine(t.text, 2000)}`)
+    // User turns were capped at 2,000 characters here, which is a permanent
+    // cut applied to the one part of a transcript a human actually wrote.
+    if (t.role === 'user') body.push(`**user:** ${oneLine(t.text, o.maxChars)}`)
     else if (t.role === 'assistant' && t.text.trim()) body.push(`**assistant:** ${t.text.trim()}`)
     else if (t.role === 'tool') {
       const cap = o.maxToolResultChars ?? DEFAULT_TOOL_RESULT
@@ -90,4 +92,36 @@ export function summarizeToolInput(input: unknown, max = 120): string {
   if (input == null) return ''
   const s = typeof input === 'string' ? input : JSON.stringify(input)
   return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+/**
+ * Prefer the published `trajectory` normaliser; fall back to the turns the
+ * connector parsed itself.
+ *
+ * Fourteen harnesses are covered by a maintained schema, including the four
+ * hoppr reads. Where it applies, hoppr's own per-harness parsing is a
+ * liability rather than an asset: it lost tool-call ids and truncated results
+ * at parse time.
+ */
+export async function renderSession(
+  source: string,
+  transcript: string,
+  fallbackMeta: Record<string, string | number | undefined>,
+  fallbackTurns: Turn[],
+  o: RenderOptions,
+): Promise<{
+  body: string
+  via: 'trajectory' | 'builtin'
+  structured?: { format: string; content: string }
+}> {
+  const { toTrajectory } = await import('./trajectory.ts')
+  const t = await toTrajectory(source, transcript)
+  if (t && t.turns.length > 0) {
+    return {
+      body: renderTranscript({ ...fallbackMeta, ...t.meta, format: 'trajectory-v1' }, t.turns, o),
+      via: 'trajectory',
+      structured: { format: 'trajectory', content: t.jsonl },
+    }
+  }
+  return { body: renderTranscript(fallbackMeta, fallbackTurns, o), via: 'builtin' }
 }

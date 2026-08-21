@@ -343,23 +343,10 @@ program
       scope: o.scope as 'curated' | 'raw' | 'all' | undefined,
       mode: o.mode as 'hybrid' | 'fts' | 'vec' | undefined,
     }
-    let res = await h.search(text, opts)
-
-    // Searching the default curated scope before anything has been curated
-    // finds nothing, which reads as "hoppr lost my note" rather than "that
-    // note has not been curated yet". Widen once and say so.
-    let widened = false
-    if (res.hits.length === 0 && !o.scope) {
-      const all = await h.search(text, { ...opts, scope: 'all' })
-      if (all.hits.length > 0) {
-        res = all
-        widened = true
-      }
-    }
+    const res = await h.search(text, opts)
     if (wantJson()) {
-      return printJson(res.hits, { ...res.meta, filters: res.query.filters, widened })
+      return printJson(res.hits, { ...res.meta, filters: res.query.filters })
     }
-    if (widened) console.log(c.dim('nothing curated yet — showing raw captures'))
 
     if (res.hits.length === 0) {
       console.log(c.dim(`no hits${res.query.text ? ` for "${res.query.text}"` : ''}`))

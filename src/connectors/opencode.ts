@@ -7,6 +7,9 @@ import { renderTranscript, summarizeToolInput, type Turn } from './render.ts'
 import type { Connector, ConnectorSource, IngestCandidate, PullResult } from './types.ts'
 import { isLive } from './types.ts'
 
+/** A cap applied at capture time is permanent, so the default is none. */
+const NO_LIMIT = Number.MAX_SAFE_INTEGER
+
 const DEFAULT_DB = '~/.local/share/opencode/opencode.db'
 
 interface DbCursor {
@@ -40,8 +43,9 @@ export const opencode: Connector = {
 
   async pull(source, ctx): Promise<PullResult> {
     const cursor = (ctx.cursor ?? { lastUpdated: 0 }) as DbCursor
-    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
-    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
+    // 0 (the default) means keep everything: these limits are permanent.
+    const maxChars = Number(ctx.config.transcript_max_chars) || NO_LIMIT
+    const toolCap = Number(ctx.config.tool_result_max_chars) || NO_LIMIT
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const db = await openDriver(source.key, 'auto', { readonly: true })

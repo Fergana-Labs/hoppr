@@ -143,7 +143,7 @@ dim = 384
 
 # ── search ranking ────────────────────────────────────────────────────
 [search]
-default_scope = "curated"        # widens automatically when nothing is curated
+default_scope = "all"            # search source material and curated artifacts together
 limit = 10
 max_snippet_chars = 400
 recency_half_life_days = 180

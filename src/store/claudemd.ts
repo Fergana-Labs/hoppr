@@ -56,6 +56,10 @@ curated/tables/<name>.table.toml         extraction schema (hand-editable)
 curated/tables/<name>.jsonl              extracted rows
 curated/tables/tags.yaml                 the tag vocabulary
 
+curated/graph/nodes.jsonl                typed entities, one JSON object per line
+curated/graph/edges.jsonl                cited relationships between entities
+curated/graph/seen.jsonl                 rebuildable extraction checkpoint
+
 curated/skills/<slug>/SKILL.md           procedures distilled from past sessions
 curated/prompts/*.md                     the prompts driving curation — editable
 curated/outputs/lint-<date>.md           lint reports
@@ -131,10 +135,14 @@ Link routes:
    coin a new tag only when nothing existing covers the idea.
 5. Append one line to \`curated/wiki/log.md\`.
 
-### Query
-1. Read \`curated/wiki/index.md\` to find relevant pages.
-2. Read those pages and synthesize an answer, citing with \`[[wikilinks]]\`.
-3. If the answer is novel and valuable, file it as a new \`concepts/\` or
+### Search
+1. Use \`rg\` (or \`grep\`) across \`curated/wiki/\` for focused questions;
+   read \`curated/wiki/index.md\` when you need to orient or browse by topic.
+2. For entities and relationships, search \`curated/graph/nodes.jsonl\` and
+   \`curated/graph/edges.jsonl\`. Every edge includes evidence and a \`raw_id\`.
+3. Read the relevant pages and source files, then synthesize an answer with
+   \`[[wikilinks]]\` or source paths.
+4. If the answer is novel and valuable, file it as a new \`concepts/\` or
    \`comparisons/\` page so the next question starts from it.
 
 ### Lint
@@ -162,16 +170,19 @@ They are proposals until a human accepts them.
 If hoppr is installed, these are faster than reading files directly:
 
 \`\`\`
-hoppr search "<question>"     hybrid keyword + semantic search over everything
+hoppr search "<question>"     hybrid keyword + semantic search over everything (default)
 hoppr catalog                 the wiki catalog
+hoppr graph                   search typed graph entities
+hoppr graph show <name>       traverse cited relationships around one entity
 hoppr get <id>                one page with its sources and links
 hoppr source <raw-id>         the original capture behind a page
 hoppr ingest "<text>"         add something new
 hoppr doctor                  check store health and configuration
 \`\`\`
 
-If an MCP server is configured, \`hoppr_search\`, \`hoppr_get\`, and
-\`hoppr_source\` do the same thing. Neither is required: this store is plain
-markdown and works without them.
+If an MCP server is configured, \`hoppr_search\`, \`hoppr_get\`,
+\`hoppr_source\`, \`hoppr_graph_search\`, and \`hoppr_graph_show\` provide the
+same indexed operations. They are optional: agents can always read and search
+this store as plain Markdown and JSONL on the filesystem.
 `
 }

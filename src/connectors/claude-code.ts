@@ -4,7 +4,7 @@ import { basename, join } from 'node:path'
 import { glob } from 'tinyglobby'
 import { expandHome } from '../config/load.ts'
 import { contentHash } from '../core/hash.ts'
-import { blockText, renderTranscript, summarizeToolInput, type Turn } from './render.ts'
+import { blockText, renderSession, summarizeToolInput, type Turn } from './render.ts'
 import { parseLine, tailLines } from './tail.ts'
 import type {
   Connector,
@@ -14,6 +14,9 @@ import type {
   TailCursor,
 } from './types.ts'
 import { isLive } from './types.ts'
+
+/** A cap applied at capture time is permanent, so the default is none. */
+const NO_LIMIT = Number.MAX_SAFE_INTEGER
 
 interface CCLine {
   type?: string
@@ -68,8 +71,9 @@ export const claudeCode: Connector = {
     if (read.lines.length === 0) return { items: [], cursor: read.cursor, done: read.done }
 
     const includeSidechains = ctx.config.include_sidechains === true
-    const maxChars = Number(ctx.config.transcript_max_chars ?? 400_000)
-    const toolCap = Number(ctx.config.tool_result_max_chars ?? 8_000)
+    // 0 (the default) means keep everything: these limits are permanent.
+    const maxChars = Number(ctx.config.transcript_max_chars) || NO_LIMIT
+    const toolCap = Number(ctx.config.tool_result_max_chars) || NO_LIMIT
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []
@@ -137,7 +141,9 @@ export const claudeCode: Connector = {
       return { items: [], cursor: read.cursor, done: read.done }
     }
 
-    const body = renderTranscript(
+    const { body, structured } = await renderSession(
+      'claude-code',
+      read.lines.join('\n'),
       {
         id: sessionId,
         cwd,
@@ -156,6 +162,7 @@ export const claudeCode: Connector = {
     }
 
     const item: IngestCandidate = {
+      structured,
       externalId: `claude-code:${sessionId}`,
       kind: 'session',
       title: title ?? `Claude Code session in ${projectOf(cwd)}`,

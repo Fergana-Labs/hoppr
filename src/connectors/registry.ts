@@ -371,9 +371,27 @@ async function upsertCapture(
     title: item.title,
     externalId: item.externalId,
     created: item.createdAt,
-    origin: { ...item.origin, project: item.project },
+    origin: {
+      ...item.origin,
+      project: item.project,
+      structured_format: item.structured?.format,
+    },
     partial: item.partial,
   })
+
+  // The structured form sits beside the readable one, sharing its name. The
+  // markdown is what gets indexed; this is what survives the harness changing
+  // its format, and it is the only copy that still says which tool result came
+  // from which call.
+  if (item.structured?.content) {
+    const { writeIfChanged } = await import('../store/atomic.ts')
+    await writeIfChanged(
+      l.abs(rec.path).replace(/\.md$/, `.${item.structured.format}.jsonl`),
+      item.structured.content.endsWith('\n')
+        ? item.structured.content
+        : `${item.structured.content}\n`,
+    )
+  }
 
   db.prepare(
     `INSERT INTO raw (id,path,kind,source,external_id,media_type,title,bytes,content_hash,

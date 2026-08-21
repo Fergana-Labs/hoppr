@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import type { Config } from '../config/schema.ts'
+import { contentHash } from '../core/hash.ts'
 import type { Db } from '../db/driver.ts'
 import type { LlmProvider } from '../llm/provider.ts'
+import { writeIfChanged } from '../store/atomic.ts'
 import type { Layout } from '../store/layout.ts'
 import { loadPrompt } from '../store/prompts.ts'
 
@@ -87,8 +89,29 @@ export async function buildGraph(
   if (!cfg.retrieval.graph) return st
 
   const prompt = await loadPrompt(l, 'graph')
+  // The schema is part of the extraction prompt even though it is substituted
+  // after loadPrompt hashes the template. Include it explicitly so changing a
+  // type or relation really does re-run extraction.
+  const graphHash = contentHash(
+    [prompt.hash, JSON.stringify(cfg.graph.entity_types), JSON.stringify(cfg.graph.relations)].join(
+      '\n',
+    ),
+  )
   const allowedTypes = new Set(cfg.graph.entity_types.map(typeName).map((t) => t.toLowerCase()))
   const allowedRels = new Set(cfg.graph.relations.map((r) => r.name.toLowerCase()))
+
+  // Nodes aggregate mention counts, so an old extraction cannot be updated in
+  // place safely. Rebuild the graph when any capture was processed under a
+  // different prompt/schema; otherwise counts inflate and removed relations
+  // survive forever.
+  const stale = db
+    .prepare<{ n: number }>(
+      'SELECT count(*) AS n FROM graph_seen WHERE prompt_hash IS NOT :prompt_hash',
+    )
+    .get({ prompt_hash: graphHash })
+  if ((stale?.n ?? 0) > 0) {
+    db.exec('DELETE FROM graph_edges; DELETE FROM graph_nodes; DELETE FROM graph_seen')
+  }
 
   const todo = db
     .prepare<{ id: string; title: string | null; text: string }>(
@@ -98,7 +121,7 @@ export async function buildGraph(
           AND g.raw_id IS NULL
         ORDER BY r.captured DESC LIMIT :n`,
     )
-    .all({ ph: prompt.hash, n: opts.limit ?? 50 })
+    .all({ ph: graphHash, n: opts.limit ?? 50 })
 
   for (const row of todo) {
     st.scanned++
@@ -185,7 +208,7 @@ export async function buildGraph(
 
     db.prepare(
       'INSERT OR REPLACE INTO graph_seen (raw_id, prompt_hash, at) VALUES (:id, :ph, :now)',
-    ).run({ id: row.id, ph: prompt.hash, now })
+    ).run({ id: row.id, ph: graphHash, now })
   }
 
   // A hapax is noise — but an entity named in a STATED relation is evidenced by
@@ -201,7 +224,119 @@ export async function buildGraph(
           AND id NOT IN (SELECT to_id FROM graph_edges)`,
     ).run({ m: cfg.graph.min_mentions })
   }
+  await exportGraphFiles(db, l)
   return st
+}
+
+interface StoredNode extends GraphNode {
+  key: string
+  first_seen: number | null
+  last_seen: number | null
+}
+
+interface StoredEdge {
+  from_id: string
+  from_name?: string
+  from_type?: string
+  predicate: string
+  to_id: string
+  to_name?: string
+  to_type?: string
+  raw_id: string
+  evidence: string | null
+  at: number
+}
+
+interface StoredSeen {
+  raw_id: string
+  prompt_hash: string | null
+  at: number
+}
+
+const graphReadme = `# Knowledge graph
+
+This directory is hoppr's grep-friendly projection of the optional typed graph.
+It is generated from source material and can be rebuilt.
+
+- \`nodes.jsonl\`: one entity per line, including type, name, summary, and mention count
+- \`edges.jsonl\`: one relation per line, with endpoint names, source id, and evidence quote
+- \`seen.jsonl\`: extraction checkpoint used to restore the disposable SQLite index
+
+Search it directly with \`rg\` or \`grep\`. Use \`hoppr graph\` and
+\`hoppr graph show <name>\` when ranked lookup or one-hop traversal is more convenient.
+`
+
+function jsonl(rows: unknown[]): string {
+  return rows.length ? `${rows.map((row) => JSON.stringify(row)).join('\n')}\n` : ''
+}
+
+/** Write a deterministic, tracked projection so any filesystem agent can use the graph. */
+export async function exportGraphFiles(db: Db, l: Layout): Promise<void> {
+  const nodes = db
+    .prepare<StoredNode>(
+      `SELECT id, type, key, name, summary, mentions, first_seen, last_seen
+         FROM graph_nodes ORDER BY type, key`,
+    )
+    .all()
+  const edges = db
+    .prepare<StoredEdge>(
+      `SELECT e.from_id, f.name AS from_name, f.type AS from_type,
+              e.predicate, e.to_id, t.name AS to_name, t.type AS to_type,
+              e.raw_id, e.evidence, e.at
+         FROM graph_edges e
+         JOIN graph_nodes f ON f.id = e.from_id
+         JOIN graph_nodes t ON t.id = e.to_id
+        ORDER BY f.type, f.key, e.predicate, t.type, t.key, e.raw_id`,
+    )
+    .all()
+  const seen = db
+    .prepare<StoredSeen>('SELECT raw_id, prompt_hash, at FROM graph_seen ORDER BY raw_id')
+    .all()
+  await Promise.all([
+    writeIfChanged(l.graphNodes, jsonl(nodes)),
+    writeIfChanged(l.graphEdges, jsonl(edges)),
+    writeIfChanged(l.graphSeen, jsonl(seen)),
+    writeIfChanged(l.graphReadme, graphReadme),
+  ])
+}
+
+async function readJsonl<T>(path: string): Promise<T[] | undefined> {
+  const { readFile } = await import('node:fs/promises')
+  const body = await readFile(path, 'utf8').catch(() => undefined)
+  if (body === undefined) return undefined
+  return body
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as T)
+}
+
+/** Restore the graph when the disposable database is rebuilt from tracked files. */
+export async function restoreGraphFiles(db: Db, l: Layout): Promise<boolean> {
+  const [nodes, edges, seen] = await Promise.all([
+    readJsonl<StoredNode>(l.graphNodes),
+    readJsonl<StoredEdge>(l.graphEdges),
+    readJsonl<StoredSeen>(l.graphSeen),
+  ])
+  if (!nodes && !edges && !seen) return false
+
+  const addNode = db.prepare(
+    `INSERT INTO graph_nodes (id,type,key,name,summary,mentions,first_seen,last_seen)
+     VALUES (:id,:type,:key,:name,:summary,:mentions,:first_seen,:last_seen)`,
+  )
+  const addEdge = db.prepare(
+    `INSERT INTO graph_edges (from_id,predicate,to_id,raw_id,evidence,at)
+     VALUES (:from_id,:predicate,:to_id,:raw_id,:evidence,:at)`,
+  )
+  const addSeen = db.prepare(
+    `INSERT INTO graph_seen (raw_id,prompt_hash,at) VALUES (:raw_id,:prompt_hash,:at)`,
+  )
+  db.transaction(() => {
+    db.exec('DELETE FROM graph_edges; DELETE FROM graph_nodes; DELETE FROM graph_seen')
+    for (const row of nodes ?? []) addNode.run(row)
+    for (const row of edges ?? []) addEdge.run(row)
+    for (const row of seen ?? []) addSeen.run(row)
+  })
+  return true
 }
 
 export interface Neighbour {

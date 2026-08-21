@@ -207,6 +207,22 @@ export class Layout {
   get outputs() {
     return join(this.curated, 'outputs')
   }
+  /** Grep-friendly projection of the optional typed knowledge graph. */
+  get graph() {
+    return join(this.curated, 'graph')
+  }
+  get graphNodes() {
+    return join(this.graph, 'nodes.jsonl')
+  }
+  get graphEdges() {
+    return join(this.graph, 'edges.jsonl')
+  }
+  get graphSeen() {
+    return join(this.graph, 'seen.jsonl')
+  }
+  get graphReadme() {
+    return join(this.graph, 'README.md')
+  }
   lintReport(day: string) {
     return join(this.outputs, `lint-${day}.md`)
   }
@@ -266,6 +282,7 @@ export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
     l.skills,
     l.prompts,
     l.outputs,
+    l.graph,
     l.views,
     l.journal,
     l.logs,

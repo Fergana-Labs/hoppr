@@ -54,7 +54,7 @@ describe('CLAUDE.md', () => {
     expect(md).toContain('[[wikilinks]]')
     expect(md).toContain('confidence: high')
     expect(md).toContain('### Ingest')
-    expect(md).toContain('### Query')
+    expect(md).toContain('### Search')
     expect(md).toContain('### Lint')
     expect(md).toContain('kebab-case')
   })

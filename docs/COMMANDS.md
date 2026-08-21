@@ -86,7 +86,7 @@ hoppr query  "..."                         # backward-compatible alias
 
 | option | meaning |
 |---|---|
-| `--scope curated\|raw\|all` | default `curated`; widens automatically when nothing is curated yet |
+| `--scope curated\|raw\|all` | default `all`; restrict to generated artifacts or source material when needed |
 | `--mode hybrid\|fts\|vec` | default `hybrid` — BM25 arm + vector arm, RRF-fused |
 | `--tag <t...>` `--project <p>` `--kind <k>` `--since <when>` | filters, applied **inside** each arm before ranking |
 | `-n, --limit <n>` | how many hits |
@@ -191,18 +191,31 @@ hoppr graph build [-n]          # extract now, without a full deep pass
 ```
 
 Every edge stores its source sentence. Types and relations outside the configured schema
-are discarded.
+are discarded. The graph is also exported to ordinary tracked files:
+
+```text
+curated/graph/nodes.jsonl    typed entities
+curated/graph/edges.jsonl    relationships, evidence quotes, and source ids
+curated/graph/seen.jsonl     extraction checkpoint for rebuilding the index
+```
+
+Agents can search these files directly with `rg` or `grep`. MCP clients can use
+`hoppr_graph_search` for entity lookup and `hoppr_graph_show` for cited one-hop traversal.
 
 ## Serving it to agents
 
 ```bash
 hoppr mcp install                     # every hoppr, selected per call
-hoppr -H work mcp install --pinned    # this client sees ONE hoppr
+hoppr -H work mcp install --pinned    # MCP tools always target one hoppr
 hoppr mcp status [--probe]            # who is wired up; --probe does a real handshake
 hoppr mcp uninstall
 hoppr mcp serve [--pinned]            # stdio server; your editor runs this, not you
 hoppr vfs 'find . -name "*.md" | head'   # the read-only shell agents get
 ```
+
+The filesystem is the primary interface: agents can read the store's Markdown and JSONL
+directly. MCP adds indexed retrieval and a read-only shell for clients that prefer tools;
+pinning controls tool routing, not filesystem visibility.
 
 ## The daemon
 

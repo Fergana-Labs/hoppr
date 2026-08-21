@@ -5,12 +5,35 @@ written) with **curated pages** (what a model concluded from them). Those are
 different kinds of evidence and combining them badly is the main way an agent
 gets a confident wrong answer out of a good store.
 
-## The path
+## Start with the filesystem
 
-`hoppr_index` → `hoppr_search` → `hoppr_get` → `hoppr_source`
+The store is a directory, and you can read it directly. Use ordinary file tools
+when the wiki already gives you enough structure:
 
-Catalog, hit, page, ground truth. Do not stop at the search snippet: it is a
-ranking artefact, not a quotation.
+- `curated/wiki/index.md` is the catalog.
+- `curated/wiki/sources/` contains one page per curated source.
+- `curated/wiki/concepts/` contains cross-source synthesis.
+- `curated/graph/` contains the exported knowledge graph when graph extraction
+  is enabled.
+
+Use `find`, `rg`/`grep`, and `cat` to browse these files. MCP clients can use
+`hoppr_vfs` for equivalent read-only browsing, including `find`, `grep`, and
+`cat`.
+
+Use `hoppr_search` when you want ranked retrieval across everything at once:
+source material, wiki pages, table rows, skills, and content extracted from
+PDFs, Office documents, and images. Then use `hoppr_get` for a complete indexed
+artifact and `hoppr_source` when exact source wording matters.
+
+Do not stop at a search snippet. It is a ranking artifact, not a quotation.
+
+## Knowledge graph
+
+For questions about named entities and their relationships, inspect
+`curated/graph/nodes.jsonl` and `curated/graph/edges.jsonl`, or use
+`hoppr_graph_search` followed by `hoppr_graph_show`. Every returned edge includes
+its source capture and supporting evidence. Treat the edge as one claim from
+that source, not as independent corroboration.
 
 ## Merging results
 
@@ -41,14 +64,14 @@ The most useful thing you can report is often a gap. Before answering, ask:
 - Did every hit come from one source or one day? That is a narrow base, and
   the reader cannot tell from a confident paragraph.
 - Did the search return nothing? Distinguish **"this store has nothing on that"**
-  from **"this store does not cover that subject at all"** — check
-  `hoppr_index` for what it *does* contain before concluding either.
+  from **"this store does not cover that subject at all"** — inspect
+  `curated/wiki/index.md` to see what it contains before concluding either.
 
 ## Scope
 
-`scope: curated` is the default and is usually right. Widen to `all` when you
-need exact wording, when the subject is recent enough that curation may not have
-run, or when curated search came back empty.
+`scope: all` is the default: source material and generated artifacts are searched
+together. Use `scope: curated` when you only want the wiki, tables, and skills;
+use `scope: raw` when you only want source material.
 
 Filter with `tag:`, `project:`, `kind:` and `since:` — they run inside each
 search arm, before ranking, so they narrow rather than truncate.

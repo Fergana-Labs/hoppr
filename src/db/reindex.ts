@@ -302,6 +302,11 @@ export async function reindex(
   db.exec(`UPDATE wiki_links SET resolved = CASE
              WHEN EXISTS (SELECT 1 FROM wiki w WHERE w.slug = wiki_links.to_slug) THEN 1 ELSE 0 END`)
 
+  // The graph is tracked as JSONL alongside the wiki, so a full database
+  // rebuild does not discard it or force model extraction again.
+  const { restoreGraphFiles } = await import('../organize/graph.ts')
+  await restoreGraphFiles(db, l)
+
   if (opts.prune !== false) stats.pruned = pruneDocs(db, seen)
   stats.embedCacheHits = primeFromCache(db, cfg.embed.model)
   return stats
