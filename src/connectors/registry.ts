@@ -156,7 +156,21 @@ export async function syncOne(
   st.detected = await c.detect(conf).catch(() => false)
   if (!st.detected) return st
 
-  const since = opts.full ? 0 : (opts.since ?? Date.now() - 30 * 86_400_000)
+  /**
+   * Everything, unless you ask otherwise.
+   *
+   * There used to be a 30-day default, meant to stop a first sync silently
+   * backfilling thousands of agent sessions that each cost a model call. It
+   * was guarding the wrong stage: INDEXING is free, and it is CURATION that
+   * spends — which now states its own cost and waits for an answer. So the
+   * window bought nothing and cost correctness. Measured on a real Desktop:
+   * 277 files present, 57 indexed, 220 silently outside the window and never
+   * mentioned.
+   *
+   * `--since 30d` still restricts it, and the sync reports what a restriction
+   * left out.
+   */
+  const since = opts.full ? 0 : (opts.since ?? 0)
   const sources = await c.discover(conf).catch(() => [] as ConnectorSource[])
   st.sources = sources.length
 

@@ -382,3 +382,38 @@ export async function stopDaemon(): Promise<boolean> {
   await lock.release(Layout.daemonFileGlobal())
   return true
 }
+
+/**
+ * Start the daemon in the background and wait for it to report in.
+ *
+ * Shared with `hoppr init`, which starts one for you: a store that only
+ * changes when you remember to run a command is a worse tool than one that
+ * keeps itself current, and "now run this other command too" is a step people
+ * skip. Returns undefined rather than throwing — failing to start a background
+ * helper must not fail the thing you actually asked for.
+ */
+export async function startDaemonDetached(
+  opts: { only?: string[] } = {},
+): Promise<Awaited<ReturnType<typeof daemonStatus>>> {
+  const existing = await daemonStatus().catch(() => undefined)
+  if (existing) return existing
+  try {
+    const { spawn } = await import('node:child_process')
+    const entry = process.argv[1]
+    if (!entry) return undefined
+    const args = [entry, 'daemon', 'start', '--foreground']
+    if (opts.only?.length) args.push('--only', ...opts.only)
+    const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' })
+    child.unref()
+    // Poll rather than sleeping a fixed span: it is usually up in well under a
+    // second, and a slow machine should not be declared a failure.
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 200))
+      const info = await daemonStatus().catch(() => undefined)
+      if (info) return info
+    }
+  } catch {
+    // No daemon is a degraded mode, not a broken one.
+  }
+  return undefined
+}

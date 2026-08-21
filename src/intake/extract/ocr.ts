@@ -29,9 +29,16 @@ async function getWorker(): Promise<
 > {
   if (!workerPromise) {
     workerPromise = (async () => {
+      quietLeptonicaNotices()
       try {
         const { createWorker } = await import('tesseract.js')
-        return await createWorker('eng')
+        // A no-op logger and error handler: Leptonica narrates every image it
+        // finds unusual — "Image too small to scale", "Line cannot be
+        // recognized", the frame count of every animated GIF — and on a folder
+        // of a few thousand screenshots that is the entire output of a working
+        // sync. Real failures still surface as an empty result, which the
+        // caller already handles.
+        return await createWorker('eng', 1, { logger: () => {}, errorHandler: () => {} })
       } catch {
         return undefined
       }
@@ -43,7 +50,6 @@ async function getWorker(): Promise<
 export async function ocrImage(path: string): Promise<OcrResult> {
   const worker = await getWorker()
   if (!worker) return { text: '', confidence: 0, available: false }
-  const restore = quietLeptonicaNotices()
   try {
     const { data } = await worker.recognize(path)
     return {
@@ -57,8 +63,6 @@ export async function ocrImage(path: string): Promise<OcrResult> {
   } catch {
     // A malformed image must not fail the sweep it was found in.
     return { text: '', confidence: 0, available: true }
-  } finally {
-    restore()
   }
 }
 
@@ -72,22 +76,21 @@ export async function ocrImage(path: string): Promise<OcrResult> {
  * Matched narrowly: any other message from the OCR stack still gets through,
  * because a blanket mute is how a real failure goes missing.
  */
-function quietLeptonicaNotices(): () => void {
-  const warn = console.warn
-  const log = console.log
-  const filter =
-    (original: (...a: unknown[]) => void) =>
-    (...args: unknown[]) => {
-      const first = typeof args[0] === 'string' ? args[0] : ''
-      if (/gifToPix|we only read the first|Warning in \w+ToPix/.test(first)) return
-      original(...args)
-    }
-  console.warn = filter(warn as never) as never
-  console.log = filter(log as never) as never
-  return () => {
-    console.warn = warn
-    console.log = log
-  }
+let quieted = false
+function quietLeptonicaNotices(): void {
+  if (quieted) return
+  quieted = true
+  // The WASM writes these to the STDERR FILE DESCRIPTOR, not through console,
+  // so a console override never saw them and neither did tesseract's own
+  // logger option. Intercepting the write is the only layer that catches them.
+  const NOISE =
+    /gifToPix|we only read the first|Image too small to scale|Line cannot be recognized|Warning in \w+ToPix|Warning in pixReadMem/
+  const original = process.stderr.write.bind(process.stderr)
+  process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+    const text = typeof chunk === 'string' ? chunk : String(chunk)
+    if (NOISE.test(text)) return true
+    return (original as (...a: unknown[]) => boolean)(chunk, ...rest)
+  }) as typeof process.stderr.write
 }
 
 /**

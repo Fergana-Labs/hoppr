@@ -73,6 +73,24 @@ function wrap(text: string, width: number): string[] {
   return lines.slice(0, 4)
 }
 
+/**
+ * Never let a partial index look like a complete one.
+ *
+ * `indexed 57 files` on a Desktop holding 277 reads as finished. `sync` said
+ * so and `index` did not, which is the command someone actually runs.
+ */
+function reportSkipped(stats: Array<{ outsideWindow: number; errors: number }>, full?: boolean) {
+  const outside = stats.reduce((a, s) => a + s.outsideWindow, 0)
+  const errors = stats.reduce((a, s) => a + s.errors, 0)
+  if (outside && !full) {
+    console.log(
+      c.yellow(`  ${outside} older item${outside === 1 ? '' : 's'} outside the sync window`) +
+        c.dim(' — `hoppr sync --full` to include them'),
+    )
+  }
+  if (errors) console.log(c.yellow(`  ${errors} could not be read`))
+}
+
 const progressLine = (msg: string) => {
   if (!process.stderr.isTTY) return
   process.stderr.write(`\r  ${c.dim(msg.slice(0, 72).padEnd(74))}`)
@@ -87,6 +105,7 @@ program
   .option('--name <name>', 'what to call it (default: this directory)')
   .option('-y, --yes', 'index and curate immediately, without asking')
   .option('--manual', 'capture-only: do not index the surrounding folder')
+  .option('--no-daemon', 'skip starting the background daemon')
   .option('--from <source>', 'dir:<path> | agents:<harness,...> | manual (default: this folder)')
   .option('--describe <text>', 'one line telling an agent when to use this hoppr')
   .option('--curation <preset>', 'notes | papers | agents | index-only | minimal')
@@ -105,6 +124,7 @@ program
         curation?: string
         copy?: boolean
         exclude?: string[]
+        daemon?: boolean
       } = {},
     ) => {
       // `git init` makes `.git` HERE. Anything else would be a different tool
@@ -175,6 +195,7 @@ program
             const stats = await h0.sync({})
             const n = stats.reduce((a, x) => a + x.captured + x.updated, 0)
             console.log(`${c.green('indexed')} ${n} file${n === 1 ? '' : 's'} — searchable now`)
+            reportSkipped(stats, false)
             const llm = await h0.llm('fast')
             if (!llm) {
               console.log(c.dim('  no model configured — keyword search works. `hoppr doctor`'))
@@ -209,19 +230,30 @@ program
       // Be explicit that nothing is running yet. `hoppr daemon start` as a bare
       // suggestion reads as optional polish; the truth is that without it the
       // store only changes when you run a command.
-      const { daemonStatus } = await import('./daemon/main.ts')
-      const running = await daemonStatus().catch(() => undefined)
+      // Start the daemon here unless one is already up. A store that only
+      // changes when you remember to run a command is a worse tool than one
+      // that keeps itself current, and "now run this other command too" is a
+      // step people skip.
+      const { daemonStatus, startDaemonDetached } = await import('./daemon/main.ts')
+      let running = await daemonStatus().catch(() => undefined)
+      if (!running && o.daemon !== false) {
+        running = await startDaemonDetached().catch(() => undefined)
+      }
+
       console.log()
-      console.log(`  ${c.cyan('hoppr search "…"')}    ${c.dim('search what you just indexed')}`)
+      console.log(`  ${c.cyan('hoppr search "…"')}   ${c.dim('search what you just indexed')}`)
       if (running) {
-        console.log(`  ${c.dim(`daemon running (pid ${running.pid}) — it will keep this current`)}`)
+        console.log(
+          `  ${c.dim(`daemon running (pid ${running.pid}) — watches this folder, curates nightly`)}`,
+        )
       } else {
         console.log(
-          `  ${c.cyan('hoppr daemon start')}  ${c.dim('keep it current as files change')}`,
+          `  ${c.cyan('hoppr daemon start')} ${c.dim('to keep it current as files change')}`,
         )
-        console.log(`  ${c.dim('  nothing runs in the background until you do')}`)
       }
-      console.log(`  ${c.cyan('hoppr doctor')}        ${c.dim('check what is working')}`)
+      console.log(
+        `  ${c.cyan('hoppr doctor')}       ${c.dim('check what is running and what is not')}`,
+      )
     },
   )
 
@@ -840,6 +872,7 @@ program
     process.stderr.write('\r')
     const captured = stats.reduce((a, x) => a + x.captured + x.updated, 0)
     console.log(`${c.green('indexed')} ${captured} item${captured === 1 ? '' : 's'}`)
+    reportSkipped(stats, o.full)
 
     if (o.curate !== false) {
       const llm = await h.llm('fast')
