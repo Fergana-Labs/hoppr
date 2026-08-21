@@ -141,7 +141,37 @@ const INDEXABLE = [
 /** Types whose extraction is worth keeping on disk rather than redoing. */
 const EXPENSIVE_EXTS = [...IMAGE_EXTS, ...OFFICE_EXTS, '.pdf', '.html']
 
+/**
+ * Files whose entire purpose is holding a credential.
+ *
+ * Redaction is a net and is incomplete by construction; a document that exists
+ * to store secrets should not reach it at all. Found by pointing hoppr at a
+ * real ~/Downloads and watching it index a 1Password Emergency Kit.
+ *
+ * Matched on the NAME, so it costs nothing and cannot be defeated by a format
+ * we cannot parse. Override in .hopprignore with a `!` line if you genuinely
+ * want one indexed.
+ */
+const CREDENTIAL_FILES = [
+  '**/*[Ee]mergency*[Kk]it*',
+  '**/*[Rr]ecovery*[Cc]ode*',
+  '**/*[Bb]ackup*[Cc]ode*',
+  '**/*.kdbx',
+  '**/*.pem',
+  '**/*.p12',
+  '**/*.pfx',
+  '**/*.keystore',
+  '**/id_rsa*',
+  '**/id_ed25519*',
+  '**/*.ppk',
+  '**/.env',
+  '**/.env.*',
+  '**/credentials*.json',
+  '**/service-account*.json',
+]
+
 const DEFAULT_EXCLUDES = [
+  ...CREDENTIAL_FILES,
   // A `--here` hoppr sits inside the folder it indexes. Dotfiles are already
   // skipped, but never index your own store even if that changes.
   '**/.hoppr/**',

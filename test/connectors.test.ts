@@ -552,3 +552,45 @@ describe('trajectory storage', () => {
     expect(t.jsonl).toContain('E'.repeat(10_000))
   })
 })
+
+describe('credential documents', () => {
+  it('redacts a 1Password Secret Key', () => {
+    // Real finding: pointing hoppr at a ~/Downloads indexed an Emergency Kit
+    // PDF and wrote the key into a shadow file in plaintext. Group-separated
+    // uppercase, so neither the vendor patterns nor the entropy net saw it.
+    const r = redact('Secret Key: A3-ZZZZZZ-QQQQQ-WWWWW-XXXXX-YYYYY-VVVVV')
+    expect(r.redacted).toBe(true)
+    expect(r.text).toContain('onepassword-secret-key')
+    expect(r.text).not.toContain('ZZZZZZ')
+  })
+
+  it('leaves slugs, uuids and dates alone', () => {
+    for (const t of [
+      'see docs/how-to-index-a-folder-quickly.md',
+      'session 550e8400-e29b-41d4-a716-446655440000',
+      '2026-08-21 to 2026-09-30',
+    ]) {
+      expect(redact(t).text, t).toBe(t)
+    }
+  })
+
+  it('never indexes a file that exists to hold secrets', async () => {
+    // Redaction is a net and incomplete by construction. A document whose
+    // whole purpose is storing a credential should not reach it.
+    const { dirConnector } = await import('../src/connectors/dir.ts')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'hoppr-creds-'))
+    writeFileSync(
+      join(dir, 'Emergency Kit A3-XXXX.txt'),
+      'Secret Key: A3-AAAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF',
+    )
+    writeFileSync(join(dir, 'recovery-codes.txt'), 'abcd-efgh-ijkl-mnop')
+    writeFileSync(join(dir, 'notes.md'), '# Real note\n\nRRF k=60.')
+
+    const found = await dirConnector.discover({ path: dir })
+    const names = found.map((f) => f.label)
+    expect(names).toEqual(['notes.md'])
+  })
+})

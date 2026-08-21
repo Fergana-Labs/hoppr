@@ -39,6 +39,16 @@ export const DEFAULT_RULES: RedactionRule[] = [
   { name: 'aws-access-key', re: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
   { name: 'stripe-key', re: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}/g },
   { name: 'hf-token', re: /\bhf_[A-Za-z0-9]{30,}/g },
+  /**
+   * A 1Password Secret Key, and it is not hypothetical: pointing hoppr at a
+   * real ~/Downloads indexed an Emergency Kit PDF and put the key in a shadow
+   * file in plaintext. Group-separated uppercase, so neither the vendor
+   * patterns nor the entropy net saw it — the entropy rule treats short
+   * alphanumeric segments as a slug, which is exactly this shape.
+   */
+  { name: 'onepassword-secret-key', re: /\bA3-[A-Z0-9]{6}(?:-[A-Z0-9]{5,6}){4,5}\b/g },
+  /** Recovery codes: groups of hex or alphanumerics, printed to be kept. */
+  { name: 'recovery-code', re: /\b(?:[a-z0-9]{4,5}-){3,7}[a-z0-9]{4,5}\b(?=[\s,;]|$)/gi },
   { name: 'npm-token', re: /\bnpm_[A-Za-z0-9]{36}\b/g },
   {
     name: 'private-key',
