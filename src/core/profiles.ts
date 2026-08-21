@@ -1,3 +1,4 @@
+import { BUILT_PAGE_TYPES } from '../store/layout.ts'
 import type { Profile } from './source.ts'
 
 /**
@@ -37,7 +38,7 @@ export const PRESETS: Record<string, CurationPreset> = {
    * appears is worse than not offering it.
    */
   notes: {
-    pageTypes: ['source', 'concept'],
+    pageTypes: [...BUILT_PAGE_TYPES],
     skills: false,
     embeddings: true,
     sourcePages: true,
@@ -53,7 +54,7 @@ export const PRESETS: Record<string, CurationPreset> = {
   },
   /** Transcripts. The only place skill mining earns its cost. */
   agents: {
-    pageTypes: ['source', 'concept'],
+    pageTypes: [...BUILT_PAGE_TYPES],
     skills: true,
     embeddings: true,
     sourcePages: true,

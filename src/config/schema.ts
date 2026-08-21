@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BUILT_PAGE_TYPES } from '../store/layout.ts'
 
 /**
  * Config schema. Defaults live here, so `defaults()` and validation can never
@@ -70,7 +71,7 @@ export const ConfigSchema = z.object({
        * implemented; the others are in the layout spec but not built, so
        * listing them here promises pages that never appear.
        */
-      page_types: z.array(z.string()).default(['source', 'concept']),
+      page_types: z.array(z.string()).default([...BUILT_PAGE_TYPES]),
       /**
        * One paragraph telling an agent what this corpus IS and what it is for,
        * written into the wiki's front door and the MCP server's instructions.

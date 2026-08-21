@@ -17,10 +17,11 @@ describe('curation presets', () => {
     expect(PRESETS.notes!.skills).toBe(false)
   })
 
-  it('only advertises page types hoppr can actually build', () => {
+  it('only advertises page types hoppr can actually build', async () => {
     // entity / comparison / digest are specified but not implemented. A preset
     // that lists them promises pages that never appear.
-    const implemented = new Set(['source', 'concept'])
+    const { BUILT_PAGE_TYPES } = await import('../src/store/layout.ts')
+    const implemented = new Set<string>(BUILT_PAGE_TYPES)
     for (const [name, p] of Object.entries(PRESETS)) {
       for (const t of p.pageTypes) {
         expect(implemented.has(t), `${name} claims unimplemented page type '${t}'`).toBe(true)

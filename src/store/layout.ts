@@ -249,6 +249,17 @@ export class Layout {
   }
 }
 
+/**
+ * Page types hoppr can actually produce.
+ *
+ * The single source of truth for that, because it had become four copies: two
+ * preset definitions, the config default, and the directories `init` creates.
+ * `entity`, `comparison` and `digest` are in the layout spec and are not
+ * built — a list that drifts is how a store ends up with three empty
+ * directories promising pages that never appear.
+ */
+export const BUILT_PAGE_TYPES: readonly string[] = ['source', 'concept']
+
 /** Explicit map: `entity` must become `entities`, not `entitys`. */
 export const PAGE_DIRS: Record<string, string> = {
   source: 'sources',
@@ -260,12 +271,8 @@ export const PAGE_DIRS: Record<string, string> = {
 
 /** Directories created by `hoppr init`. */
 export function storeDirs(l: Layout, opts: { raw?: boolean } = {}): string[] {
-  // Only the page types hoppr can actually produce. `entities/`,
-  // `comparisons/` and `digests/` are in the layout spec and are not built, so
-  // creating them left three more empty directories promising pages that never
-  // appear — the same problem as inbox/, views/ and state/. `pageDir()` still
-  // resolves them, so implementing one needs no layout change.
-  const BUILT_PAGE_TYPES = ['source', 'concept']
+  // `pageDir()` still resolves the unbuilt types, so implementing one needs no
+  // layout change here.
   return [
     ...(opts.raw === false ? [] : [l.raw]),
     l.wiki,
