@@ -41,7 +41,8 @@
     "typecheck": "tsc --noEmit",
     "hoppr": "node --experimental-strip-types src/cli.ts",
     "e2e": "npm run build && bash test/e2e.sh",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test",
+    "prepublishOnly": "npm run check && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
