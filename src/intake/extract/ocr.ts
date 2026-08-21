@@ -43,6 +43,7 @@ async function getWorker(): Promise<
 export async function ocrImage(path: string): Promise<OcrResult> {
   const worker = await getWorker()
   if (!worker) return { text: '', confidence: 0, available: false }
+  const restore = quietLeptonicaNotices()
   try {
     const { data } = await worker.recognize(path)
     return {
@@ -56,6 +57,36 @@ export async function ocrImage(path: string): Promise<OcrResult> {
   } catch {
     // A malformed image must not fail the sweep it was found in.
     return { text: '', confidence: 0, available: true }
+  } finally {
+    restore()
+  }
+}
+
+/**
+ * Silence Leptonica's per-image notices, and nothing else.
+ *
+ * An animated GIF makes it print `There are 125 images in the file; we only
+ * read the first` — accurate, unactionable, and once per file. On a folder of
+ * a few thousand images that is the entire output of a working sync.
+ *
+ * Matched narrowly: any other message from the OCR stack still gets through,
+ * because a blanket mute is how a real failure goes missing.
+ */
+function quietLeptonicaNotices(): () => void {
+  const warn = console.warn
+  const log = console.log
+  const filter =
+    (original: (...a: unknown[]) => void) =>
+    (...args: unknown[]) => {
+      const first = typeof args[0] === 'string' ? args[0] : ''
+      if (/gifToPix|we only read the first|Warning in \w+ToPix/.test(first)) return
+      original(...args)
+    }
+  console.warn = filter(warn as never) as never
+  console.log = filter(log as never) as never
+  return () => {
+    console.warn = warn
+    console.log = log
   }
 }
 

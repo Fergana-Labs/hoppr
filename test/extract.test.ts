@@ -191,3 +191,26 @@ describe('xlsx dates', () => {
     expect(text).toContain('8400')
   })
 })
+
+describe('shadow extractions', () => {
+  it('covers every type whose extraction is expensive', async () => {
+    // Images were shadowed and PDFs were not, so `reindex` re-parsed every PDF
+    // and re-ran OCR over every scanned page — the most expensive path here.
+    const { IMAGE_EXTS } = await import('../src/intake/extract/image.ts')
+    const { OFFICE_EXTS } = await import('../src/intake/extract/office.ts')
+    const { readFile } = await import('node:fs/promises')
+    const dir = await readFile('src/connectors/dir.ts', 'utf8')
+    const registry = await readFile('src/connectors/registry.ts', 'utf8')
+
+    // Read side: the reuse check must cover them.
+    expect(dir).toContain('EXPENSIVE_EXTS')
+    for (const ext of [...IMAGE_EXTS, ...OFFICE_EXTS, '.pdf']) {
+      const covered =
+        dir.includes('IMAGE_EXTS') && dir.includes('OFFICE_EXTS') && dir.includes("'.pdf'")
+      expect(covered, `${ext} not in the reuse set`).toBe(true)
+    }
+    // Write side: the shadow must be written for them, not only for images.
+    expect(registry).toContain('OFFICE_EXTS')
+    expect(registry).toContain("ext === '.pdf'")
+  })
+})

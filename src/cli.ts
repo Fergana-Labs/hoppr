@@ -34,6 +34,15 @@ async function ctx(): Promise<Hoppr> {
 }
 const wantJson = () => program.opts<{ json?: boolean }>().json === true
 
+/**
+ * One rewritten line on stderr, so a long pass shows progress without
+ * scrolling. stderr because stdout may be piped into something.
+ */
+const progressLine = (msg: string) => {
+  if (!process.stderr.isTTY) return
+  process.stderr.write(`\r  ${c.dim(msg.slice(0, 72).padEnd(74))}`)
+}
+
 // ── init ──────────────────────────────────────────────────────────
 program
   .command('init')
@@ -134,9 +143,24 @@ program
             const llm = await h0.llm('fast')
             if (!llm) {
               console.log(c.dim('  no model configured — keyword search works. `hoppr doctor`'))
-            } else if (o.yes || (await confirm('  Curate them into pages? (costs model calls)'))) {
-              const st = await h0.curate({})
-              console.log(`${c.green('curated')} ${st.logLine}`)
+            } else {
+              // Say what it costs BEFORE asking. The same question reads
+              // identically for three files and for the 2,825 a Downloads
+              // folder produces, and only one of those is a casual yes.
+              const { curateEstimate } = await import('./onboard.ts')
+              const { isSubprocessProvider } = await import('./llm/index.ts')
+              const est = curateEstimate(n, {
+                batchSize: h0.config.curate.fast_batch,
+                subprocess: isSubprocessProvider(llm.id),
+              })
+              console.log(c.dim(`  ${est.line}`))
+              if (o.yes || (await confirm('  Curate them into pages?'))) {
+                const st = await h0.curate({ onProgress: progressLine })
+                process.stderr.write('\r')
+                console.log(`${c.green('curated')} ${st.logLine}`)
+              } else {
+                console.log(c.dim('  skipped — `hoppr curate` when you are ready'))
+              }
             }
           }
         } finally {
@@ -757,7 +781,8 @@ program
     // in the order it has to happen. Three commands to get going was two too
     // many: someone edits hoppr.toml, runs the obvious thing, and finds an
     // empty store because they ran the second step and not the first.
-    const stats = await h.sync({ full: o.full })
+    const stats = await h.sync({ full: o.full, onProgress: progressLine })
+    process.stderr.write('\r')
     const captured = stats.reduce((a, x) => a + x.captured + x.updated, 0)
     console.log(`${c.green('indexed')} ${captured} item${captured === 1 ? '' : 's'}`)
 
@@ -767,7 +792,23 @@ program
         console.log(c.yellow('no model provider — skipping curation'))
         console.log(c.dim('  keyword search works. `hoppr doctor` for why.'))
       } else {
-        const st = await h.curate({ limit })
+        const { curateEstimate } = await import('./onboard.ts')
+        const { isSubprocessProvider } = await import('./llm/index.ts')
+        const pending = await h.pendingCurateCount()
+        if (pending > 0) {
+          console.log(
+            c.dim(
+              `  ${
+                curateEstimate(limit ?? pending, {
+                  batchSize: h.config.curate.fast_batch,
+                  subprocess: isSubprocessProvider(llm.id),
+                }).line
+              }`,
+            ),
+          )
+        }
+        const st = await h.curate({ limit, onProgress: progressLine })
+        process.stderr.write('\r')
         console.log(`${c.green('curated')} ${st.logLine}`)
       }
     }

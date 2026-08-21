@@ -98,3 +98,42 @@ export async function retentionWarning(): Promise<string | undefined> {
     'anything not yet synced is gone. Raise it in ~/.claude/settings.json to keep the originals.'
   )
 }
+
+/**
+ * What curating this many captures will actually take.
+ *
+ * `Curate them into pages? (costs model calls)` is true and useless: it reads
+ * the same for three files and for the 2,825 someone gets from ~/Downloads.
+ * The answer to "should I?" is entirely a question of how many, how long, and
+ * how much — so say all three before asking.
+ *
+ * Figures come from measurement, not a guess: an API batch of 8 averaged 42s
+ * and about $0.0016 per capture on claude-haiku-4.5; the `claude` CLI path runs
+ * roughly 65s per batch and bills nothing extra.
+ */
+export function curateEstimate(
+  captures: number,
+  opts: { batchSize?: number; subprocess?: boolean } = {},
+): { batches: number; minutes: number; usd: number; line: string } {
+  const batchSize = opts.batchSize ?? 8
+  const batches = Math.ceil(captures / batchSize)
+  const perBatchSec = opts.subprocess ? 65 : 42
+  const minutes = Math.round((batches * perBatchSec) / 60)
+  const usd = opts.subprocess ? 0 : captures * 0.0016
+
+  const time =
+    minutes < 1
+      ? 'under a minute'
+      : minutes < 60
+        ? `about ${minutes} min`
+        : `about ${Math.round(minutes / 60)}h`
+  const cost = opts.subprocess ? 'no API cost (local `claude` CLI)' : `roughly $${usd.toFixed(2)}`
+  return {
+    batches,
+    minutes,
+    usd,
+    line:
+      `${captures} capture${captures === 1 ? '' : 's'} · ` +
+      `${batches} model call${batches === 1 ? '' : 's'} · ${time} · ${cost}`,
+  }
+}

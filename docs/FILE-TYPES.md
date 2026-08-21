@@ -35,6 +35,27 @@ For Word documents, `mammoth` preserves structures such as tables and footnotes.
 it, the built-in reader still extracts ordinary prose. Legacy Office files use the older
 binary OLE format and must be re-saved as `.docx`, `.xlsx`, or `.pptx` for text extraction.
 
+### Extractions are kept on disk
+
+Anything that cost real work to read — a PDF, a Word or Excel file, an image —
+gets a **shadow markdown** beside the capture:
+
+```
+raw/2026/08/21/sample-R3889R.extract.md
+---
+source: "/Users/you/Downloads/sample.pdf"
+raw_id: 01M0GZ663N7SAABXDHFPR3889R
+extracted: 2026-08-21
+method: pdf-text-or-ocr
+---
+Reciprocal rank fusion with k=60 outperformed weighted score fusion.
+```
+
+Extraction reads it back by `source:` path, so `hoppr reindex` re-uses what you already
+paid for instead of re-OCRing a scanned PDF or re-unzipping every spreadsheet. Verified by
+disabling **every** extractor and rebuilding: the text is still there. Markdown and plain
+text are not shadowed — re-reading them is free.
+
 ### Optional dependencies
 
 | package | capability | fallback when absent |

@@ -572,6 +572,20 @@ export class Hoppr {
     return rawStore.readText(this.layout, rec)
   }
 
+  /** Captures waiting on curation — what an estimate should be based on. */
+  async pendingCurateCount(): Promise<number> {
+    const db = await this.db()
+    return (
+      db
+        .prepare<{ n: number }>(
+          `SELECT count(*) n FROM raw
+            WHERE curate_stale = 1 AND curate_fails < 3 AND partial = 0
+              AND text IS NOT NULL AND length(text) > 0`,
+        )
+        .get()?.n ?? 0
+    )
+  }
+
   async stats(): Promise<Record<string, number>> {
     const db = await this.db()
     const one = (sql: string) => db.prepare<{ n: number }>(sql).get()?.n ?? 0

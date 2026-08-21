@@ -425,3 +425,31 @@ describe('version', () => {
     expect(offenders, `hardcoded version in: ${offenders.join(', ')}`).toEqual([])
   })
 })
+
+describe('curate estimate', () => {
+  it('says how long and how much before asking', async () => {
+    // "Curate them into pages? (costs model calls)" reads identically for
+    // three files and for the 2,825 a Downloads folder produces, and only one
+    // of those is a casual yes.
+    const { curateEstimate } = await import('../src/onboard.ts')
+    const big = curateEstimate(2825)
+    expect(big.batches).toBe(354)
+    expect(big.line).toContain('2825 captures')
+    expect(big.line).toMatch(/\$\d+\.\d\d/)
+    expect(big.minutes).toBeGreaterThan(120)
+  })
+
+  it('reports no API cost on the subprocess path, because there is none', async () => {
+    const { curateEstimate } = await import('../src/onboard.ts')
+    const cli = curateEstimate(2825, { subprocess: true })
+    expect(cli.usd).toBe(0)
+    expect(cli.line).toContain('no API cost')
+    // …and it is slower, which is the trade someone is choosing between.
+    expect(cli.minutes).toBeGreaterThan(curateEstimate(2825).minutes)
+  })
+
+  it('does not pluralise a single call', async () => {
+    const { curateEstimate } = await import('../src/onboard.ts')
+    expect(curateEstimate(1).line).toContain('1 capture · 1 model call ·')
+  })
+})

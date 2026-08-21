@@ -53,6 +53,14 @@ export interface SyncOptions {
   secrets?: Record<string, string>
 }
 
+/** What produced this extraction, recorded so a reader knows what they have. */
+function extractionMethod(ext: string, cfg: Config): string {
+  if (ext === '.pdf') return cfg.retrieval.extract.pdf_ocr ? 'pdf-text-or-ocr' : 'pdf-text'
+  if (ext === '.html') return 'html-strip'
+  if (['.docx', '.xlsx', '.pptx'].includes(ext)) return 'office-xml'
+  return cfg.retrieval.extract.image_llm ? 'ocr+vision' : 'ocr'
+}
+
 /**
  * Pull from every enabled connector.
  *
@@ -366,8 +374,15 @@ async function upsertCapture(
     if (!src) return
     const { extname } = await import('node:path')
     const { IMAGE_EXTS } = await import('../intake/extract/image.ts')
-    // Only where extraction was expensive. Prose re-reads for free.
-    if (!IMAGE_EXTS.includes(extname(src).toLowerCase())) return
+    const { OFFICE_EXTS } = await import('../intake/extract/office.ts')
+    // Only where extraction was expensive, and it is not only images. A PDF
+    // costs a pdf.js parse and, when it is a scan, rasterising every page and
+    // OCRing it — the most expensive path here. Office formats cost a full
+    // unzip and XML walk. Markdown and text re-read for free and are skipped.
+    const ext = extname(src).toLowerCase()
+    const worthShadowing =
+      IMAGE_EXTS.includes(ext) || OFFICE_EXTS.includes(ext) || ext === '.pdf' || ext === '.html'
+    if (!worthShadowing) return
 
     const { writeIfChanged } = await import('../store/atomic.ts')
     const { slugify } = await import('../core/ids.ts')
@@ -380,7 +395,7 @@ async function upsertCapture(
       `source: ${JSON.stringify(src)}`,
       `raw_id: ${id}`,
       `extracted: ${new Date(item.updatedAt).toISOString().slice(0, 10)}`,
-      `method: ${cfg.retrieval.extract.image_llm ? 'ocr+vision' : 'ocr'}`,
+      `method: ${extractionMethod(ext, cfg)}`,
       '---',
       '',
     ].join('\n')

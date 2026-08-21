@@ -138,6 +138,9 @@ const INDEXABLE = [
   '.tsv',
 ]
 
+/** Types whose extraction is worth keeping on disk rather than redoing. */
+const EXPENSIVE_EXTS = [...IMAGE_EXTS, ...OFFICE_EXTS, '.pdf', '.html']
+
 const DEFAULT_EXCLUDES = [
   // A `--here` hoppr sits inside the folder it indexes. Dotfiles are already
   // skipped, but never index your own store even if that changes.
@@ -170,12 +173,16 @@ export async function extractFileText(path: string, ctx?: ConnectorContext): Pro
   // never happens, not that it happens and is discarded.
   const on = (ctx?.config.extract as Record<string, boolean> | undefined) ?? {}
   const enabled = (key: string) => on[key] !== false
-  if (IMAGE_EXTS.includes(ext)) {
-    // Reuse an extraction we already paid for. `reindex` is meant to be free,
-    // and re-OCRing every image is neither free nor deterministic.
-    const shadow = ctx?.layout ? (await shadowIndex(ctx.layout)).get(path) : undefined
-    if (shadow) return shadow
 
+  // Reuse an extraction we already paid for, whatever produced it. `reindex`
+  // is meant to be free, and re-OCRing a scanned PDF or re-unzipping every
+  // spreadsheet is neither free nor deterministic.
+  if (EXPENSIVE_EXTS.includes(ext) && ctx?.layout) {
+    const shadow = (await shadowIndex(ctx.layout)).get(path)
+    if (shadow) return shadow
+  }
+
+  if (IMAGE_EXTS.includes(ext)) {
     if (!enabled('ocr') && !enabled('image_llm')) {
       return `[image: ${basename(path)}]\n\nImage extraction is disabled. Indexed by name and path.`
     }
