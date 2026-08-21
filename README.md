@@ -4,7 +4,7 @@
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Turn any folder into queryable, structured context.** Run hoppr in a directory of
+**Turn any folder into queryable, structured context your agents can understand.** Run hoppr in a directory of
 papers, notes, screenshots, downloads, or agent transcripts. It leaves the original
 files alone and adds hybrid search, a linked wiki, structured tables, and an optional
 knowledge graph.
@@ -19,7 +19,7 @@ npx hoppr init
 ```
 
 Like `git init`, `hoppr init` creates a hidden directory in the folder where you run it.
-Your files stay where they are and are never opened for writing.
+Your files stay where they are and are never edited or written to.
 
 ![hoppr wiki built from a mixed folder](docs/02-wiki.png)
 
