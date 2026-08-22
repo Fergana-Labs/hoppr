@@ -243,6 +243,7 @@ describe('skillify promotion gate', () => {
     confidence: 0.8,
     minEvidence: 3,
     minConfidence: 0.6,
+    reusable: true,
   }
 
   it('passes a skill that recurs, says when to use it, and records pitfalls', () => {
@@ -272,8 +273,16 @@ describe('skillify promotion gate', () => {
     expect(r.failures.join(' ')).toMatch(/pitfall/)
   })
 
-  it('gates out a one-off', () => {
-    expect(promotionGate({ ...good, evidenceCount: 1 }).pass).toBe(false)
+  it('gates out something specific to the sessions it came from', () => {
+    // This replaced "gates out a one-off". Counting recurrences was a proxy
+    // for generalizability and wrong both ways — it discarded a plainly
+    // reusable procedure seen once and admitted a one-off that happened
+    // twice. The judgement is made against the transcript instead.
+    expect(promotionGate({ ...good, reusable: false }).pass).toBe(false)
+  })
+
+  it('lets a single session through when the job plainly repeats', () => {
+    expect(promotionGate({ ...good, evidenceCount: 1, minEvidence: 1 }).pass).toBe(true)
   })
 
   it('recognizes trigger quality and counts steps', () => {
@@ -302,7 +311,6 @@ describe('skill resolver', () => {
           state: 'accepted',
           evidence_count: 3,
           confidence: 0.8,
-          pinned: 0,
         },
         {
           slug: 'b-proposal',
@@ -312,7 +320,6 @@ describe('skill resolver', () => {
           state: 'proposed',
           evidence_count: 3,
           confidence: 0.8,
-          pinned: 0,
         },
       ] as SkillRow[]
       const rel = await writeResolver(hp.layout, rows)

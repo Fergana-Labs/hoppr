@@ -16,6 +16,16 @@ export const PROVIDERS = [
   'none',
 ] as const
 
+/**
+ * The skills a new store starts with, written into its hoppr.toml at init.
+ *
+ * Names only. What each one collects, and the question it asks, lives in the
+ * `lesson-extract` prompt — ejected into the store alongside every other
+ * prompt, because a paragraph of instructions is prompt-shaped, not
+ * config-shaped, and hoppr already has one place for those.
+ */
+export const DEFAULT_HAVE = ['glossary', 'preferences', 'comms-preferences', 'working-agreements']
+
 export const ConfigSchema = z.object({
   hopper: z
     .object({
@@ -196,16 +206,6 @@ export const ConfigSchema = z.object({
     .object({
       fast_batch: z.number().int().positive().default(8),
       deep_cron: z.string().default('0 3 * * *'),
-      /**
-       * Curated paths the agent must never rewrite, as globs relative to
-       * `curated/`.
-       *
-       * Hand-editing a page already pins it — the agent notices and backs off.
-       * This is the version you set BEFORE writing anything, so a page you
-       * intend to own is protected from the first pass rather than from the
-       * first time you happen to edit it.
-       */
-      protect: z.array(z.string()).default([]),
       budget: z
         .object({
           max_usd_per_day: z.number().nonnegative().default(2.0),
@@ -233,6 +233,16 @@ export const ConfigSchema = z.object({
       embeddings: z.boolean().default(true),
       /** Typed entities and relations. See [graph]. */
       graph: z.boolean().default(false),
+      /**
+       * Expand a query with the vocabulary ledger before the keyword arm runs.
+       *
+       * Searching for a word you use that the documents do not is the case
+       * this covers — hoppr already records what your terms mean, and without
+       * this the definition is reachable only by an agent that loads the
+       * SKILL.md. Expansion terms are OR'd alongside the originals, so this
+       * only ever adds candidates.
+       */
+      glossary_expansion: z.boolean().default(true),
       /** Per-extractor toggles — the expensive parts of "index this folder". */
       extract: z
         .object({
@@ -335,28 +345,68 @@ export const ConfigSchema = z.object({
   skills: z
     .object({
       enabled: z.boolean().default(true),
-      min_evidence: z.number().int().positive().default(3),
+      /**
+       * Sessions a procedure must appear in before it can be proposed.
+       *
+       * Defaults to 1: recurrence is corroboration, not the test. Whether a
+       * procedure generalizes is now judged by the miner reading the
+       * transcript and re-checked by the verifier, which answers the real
+       * question instead of counting a proxy for it. Raise it to make mining
+       * conservative on a corpus you already know well.
+       */
+      min_evidence: z.number().int().positive().default(1),
       min_confidence: z.number().min(0).max(1).default(0.6),
       default_target: z.string().default('~/.claude/skills'),
       /**
-       * auto      — cluster transcripts and propose whatever recurs.
-       * targeted  — only mine the subjects named in `targets`.
-       * off       — never mine; hand-written skills still install.
-       *
-       * `targeted` exists because auto-mining a corpus you know well mostly
-       * re-proposes things you already know. Naming the gaps is more useful
-       * than being told what you do most often.
+       * auto      — build everything declared, plus whatever else recurs.
+       * targeted  — only what `want` declares.
+       * off       — never mine procedures; ledgers still build, since they
+       *             are assembled by code and cost nothing.
        */
       mine: z.enum(['auto', 'targeted', 'off']).default('auto'),
-      /** Subjects to look for in `targeted` mode, in plain language. */
-      targets: z.array(z.string()).default([]),
       /**
-       * Skills seeded on init, as slugs from the packaged set. These are the
-       * ones worth having before any mining has happened — they encode how
-       * YOU work, which no amount of transcript clustering will discover in
-       * the first week.
+       * The skills hoppr maintains, by name.
+       *
+       * A name here is either a list hoppr builds from your sessions or a
+       * ready-made file it ships; which one is decided by whether the
+       * `lesson-extract` prompt defines a bin for it, and that prompt is
+       * ejected into the store where you can read and edit it.
+       *
+       * The list is written into the store's hoppr.toml at init. A default
+       * that lives only in code is behaviour you cannot see, cannot diff, and
+       * cannot switch off by editing the thing in front of you.
        */
-      seed: z.array(z.string()).default(['comms-preferences', 'working-agreements']),
+      have: z.array(z.string()).default(DEFAULT_HAVE),
+      /**
+       * Procedures to go looking for, in plain language.
+       *
+       * Auto-mining a corpus you know well mostly re-proposes what you
+       * already do; naming the gaps is more useful than being told your own
+       * habits. `mine = "targeted"` restricts mining to these.
+       */
+      find: z.array(z.string()).default([]),
+      approve: z.enum(['review', 'ledgers', 'auto']).default('ledgers'),
+      /**
+       * Localized edits allowed per revision pass on an existing skill.
+       *
+       * The bound is what matters, not its exact value: unbounded rewriting
+       * erases rules that were earned and overfits the skill to whatever went
+       * wrong most recently. SkillOpt measured both — removing the bound cost
+       * 2.5, 1.8 and 4.0 points across three benchmarks, while varying it
+       * between 1 and 16 barely moved anything. 4 is their default and ours.
+       *
+       * Set 0 to freeze every existing skill and only ever mine new ones.
+       */
+      edit_budget: z.number().int().min(0).default(4),
+      /**
+       * Reliability floor below which a skill stops being dispatched.
+       *
+       * hoppr cannot observe whether a skill helped — there is no benchmark
+       * and no reward — so this scores how often a human had to intervene:
+       * rejections, hand-edits, uninstalls. A correction rate, not a success
+       * rate. Set 0 to never archive anything automatically.
+       */
+      archive_below: z.number().min(0).max(1).default(0.4),
     })
     .prefault({}),
 

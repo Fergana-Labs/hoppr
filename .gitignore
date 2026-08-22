@@ -9,3 +9,6 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# A hoppr store created while developing here. Not part of the package.
+.hoppr/

@@ -2,9 +2,16 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parse as parseToml } from 'smol-toml'
+import { DEFAULT_HAVE, defaults } from '../config/schema.ts'
 import { HopprError } from '../core/errors.ts'
-import { defaultPreset } from '../core/profiles.ts'
-import { defaultProfile, defaultRawMode, describeSource, parseSource } from '../core/source.ts'
+import { type CurationPreset, defaultPreset, presetFor } from '../core/profiles.ts'
+import {
+  defaultProfile,
+  defaultRawMode,
+  describeSource,
+  type Profile,
+  parseSource,
+} from '../core/source.ts'
 import { writeIfChanged } from './atomic.ts'
 import { Layout } from './layout.ts'
 import { readManifest, register } from './manifest.ts'
@@ -146,7 +153,7 @@ mode = "auto"
 
 [curate]
 deep_cron = "0 3 * * *"
-`
+${renderDefaults(o.curation ?? defaultPreset(profile), profile)}${renderWants(o.curation ?? defaultPreset(profile), profile)}`
   await writeIfChanged(join(root, 'hoppr.toml'), body)
   await register({ name: o.name, path: root, source: spec.raw })
   return readHopper(o.name, root)
@@ -172,4 +179,123 @@ function defaultDescription(
 
 export function hopperExists(name: string): boolean {
   return existsSync(join(Layout.home(), name, 'hoppr.toml'))
+}
+
+/**
+ * Write the skills a store starts with into its own config.
+ *
+ * Names only, in two lists. The questions each bin asks live in the
+ * `lesson-extract` prompt, ejected into the store beside every other prompt —
+ * a paragraph of instructions is prompt-shaped, not config-shaped, and putting
+ * them here meant a `[[skills.want]]` header repeated for every single bin.
+ *
+ * Skipped for presets that build no skills: a folder of papers has no use for
+ * a preferences ledger, and explaining one would be the same noise this is
+ * meant to remove.
+ */
+function renderWants(curation: string, profile: Profile): string {
+  if (!presetFor(curation, profile).skills) return ''
+  const have = DEFAULT_HAVE.map((n) => `  ${JSON.stringify(n)},`).join('\n')
+  return `
+# The skills hoppr maintains, by name. Nothing is added behind your back —
+# delete a name and that skill stops being maintained.
+#
+# A name here is either a list hoppr builds from your sessions or a ready-made
+# file it ships; which one it is depends on whether curated/prompts/
+# lesson-extract.md defines a bin for it. That prompt is where the questions
+# live, and it is yours to edit.
+have = [
+${have}
+]
+
+# Procedures to go looking for, in plain language. Under mine = "auto" these
+# are looked for and so is anything else that recurs; under "targeted", only
+# these.
+find = []
+`
+}
+
+/**
+ * The knobs a store gets written into its own hoppr.toml, with real values.
+ *
+ * A default that lives only in code is behaviour you cannot see, cannot diff,
+ * and cannot switch off by editing the thing in front of you. Before this, a
+ * store's config had three sections while the schema had twenty — everything
+ * about what got built, what it cost, and which model ran was invisible.
+ *
+ * Values come from `defaults()` rather than being retyped here, so the file a
+ * store is born with cannot drift from what the code actually does. The
+ * comments are the part worth writing by hand.
+ */
+const WRITTEN: Array<{
+  section: string
+  when?: (p: CurationPreset) => boolean
+  title: string
+  keys: Array<[string, string]>
+}> = [
+  {
+    section: 'retrieval',
+    title: 'what gets built and searched',
+    keys: [
+      ['embeddings', 'semantic search; keyword search is always on'],
+      ['graph', 'typed entities and cited relationships'],
+      ['glossary_expansion', 'expand a query using terms from the glossary'],
+    ],
+  },
+  {
+    section: 'retrieval.extract',
+    title: 'the expensive parts of reading a folder',
+    keys: [
+      ['ocr', 'local OCR over images — free, roughly 800ms each'],
+      ['image_llm', 'describe images with a vision model — costs tokens'],
+      ['pdf', 'text layer'],
+      ['pdf_ocr', 'OCR the first pages of a scanned PDF'],
+      ['office', 'Word, Excel, PowerPoint'],
+    ],
+  },
+  {
+    section: 'skills',
+    when: (p) => p.skills,
+    title: 'how skills are made and kept',
+    keys: [
+      ['approve', 'review | ledgers | auto — what still needs your yes'],
+      ['mine', 'auto | targeted | off — procedures only'],
+      ['min_evidence', 'sessions before a procedure may be proposed'],
+      ['min_confidence', 'the miner must be at least this sure'],
+      ['edit_budget', 'localized edits per revision; 0 freezes existing skills'],
+      ['archive_below', 'reliability floor; 0 never archives'],
+      ['default_target', 'where an accepted skill is installed'],
+    ],
+  },
+]
+
+function tomlValue(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(tomlValue).join(', ')}]`
+  return JSON.stringify(v)
+}
+
+function pick(cfg: Record<string, unknown>, path: string): Record<string, unknown> {
+  let cur: Record<string, unknown> = cfg
+  for (const part of path.split('.')) cur = (cur[part] ?? {}) as Record<string, unknown>
+  return cur
+}
+
+function renderDefaults(curation: string, profile: Profile): string {
+  const cfg = defaults() as unknown as Record<string, unknown>
+  const preset = presetFor(curation, profile)
+  const out: string[] = []
+  for (const block of WRITTEN) {
+    if (block.when && !block.when(preset)) continue
+    const values = pick(cfg, block.section)
+    const lines = [`# ${block.title}`, `[${block.section}]`]
+    let width = 0
+    for (const [key] of block.keys) width = Math.max(width, key.length)
+    for (const [key, note] of block.keys) {
+      if (!(key in values)) continue
+      const assign = `${key.padEnd(width)} = ${tomlValue(values[key])}`
+      lines.push(`${assign.padEnd(Math.max(34, assign.length))}  # ${note}`)
+    }
+    out.push(lines.join('\n'))
+  }
+  return out.length ? `\n${out.join('\n\n')}\n` : ''
 }

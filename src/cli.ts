@@ -544,6 +544,9 @@ program
         )}]`,
       ),
     )
+    if (res.meta.glossary.length > 0) {
+      console.log(c.dim(`  query expanded by vocabulary: ${res.meta.glossary.join(', ')}`))
+    }
   })
 
 // ── reindex ───────────────────────────────────────────────────────
@@ -1561,17 +1564,34 @@ program
   })
 
 // ── skills ────────────────────────────────────────────────────────
-const skillsCmd = program.command('skills').description('procedures distilled from past sessions')
+const skillsCmd = program
+  .command('skills')
+  .description('what past sessions established: vocabulary, preferences, locations, procedures')
+
+/**
+ * Every skills subcommand resolves the store AND adopts what is on disk.
+ *
+ * The files are the truth and the index row is bookkeeping — seeds written at
+ * init, or a skill someone dropped in by hand, exist as SKILL.md before any
+ * row does. Only `skills list` used to reconcile, so `skills install` on a
+ * fresh store failed with "no skill" until you happened to list first.
+ */
+async function skillsCtx() {
+  const h = await ctx()
+  const db = await h.db()
+  const { reconcileSkills } = await import('./organize/skills.ts')
+  const { refreshLifecycles } = await import('./organize/reliability.ts')
+  await reconcileSkills(db, h.layout, h.config)
+  refreshLifecycles(db, h.config.skills.archive_below)
+  return { h, db }
+}
 skillsCmd
   .command('list', { isDefault: true })
   .option('--state <state>')
   .action(async (o: { state?: string }) => {
-    const h = await ctx()
-    const { listSkills, reconcileSkills } = await import('./organize/skills.ts')
-    const db = await h.db()
-    // Files on disk are the truth; the index row is bookkeeping. Adopt any
-    // SKILL.md that has no row — seeds written at init, or one dropped in by hand.
-    await reconcileSkills(db, h.layout)
+    const { db } = await skillsCtx()
+    const { listSkills } = await import('./organize/skills.ts')
+    const { reliability } = await import('./organize/reliability.ts')
     const rows = listSkills(db, o.state as never)
     if (wantJson()) return printJson(rows)
     if (rows.length === 0) return console.log(c.dim('no skills yet — `hoppr deep` mines them'))
@@ -1584,27 +1604,79 @@ skillsCmd
             : r.state === 'rejected'
               ? c.dim('rejected ')
               : c.yellow('proposed ')
-      console.log(
-        `${tag} ${c.bold(r.slug.padEnd(28))} ${c.dim(`${r.evidence_count} sessions, conf ${r.confidence.toFixed(2)}`)}`,
-      )
+      // A ledger's count is entries, not sessions, and its confidence is
+      // always 1 because every line is a quote rather than an inference.
+      const detail =
+        r.kind === 'procedure'
+          ? `${r.evidence_count} sessions, conf ${r.confidence.toFixed(2)}`
+          : `${r.kind} ledger, ${r.evidence_count} entries`
+      // Reliability only means something once a human has reacted to the
+      // skill. Printing 0.50 next to one nobody has touched would read as a
+      // measurement rather than as the absence of one.
+      const rel = reliability(db, r.slug)
+      const health =
+        rel.trials === 0
+          ? ''
+          : `  ${r.lifecycle === 'archived' ? c.red('archived') : c.dim(r.lifecycle)} ${c.dim(
+              `η ${rel.eta.toFixed(2)} (${rel.passes}/${rel.trials})`,
+            )}`
+      console.log(`${tag} ${c.bold(r.slug.padEnd(28))} ${c.dim(detail)}${health}`)
       console.log(`  ${c.dim(r.description.slice(0, 100))}`)
     }
   })
 skillsCmd.command('show <slug>').action(async (slug: string) => {
-  const h = await ctx()
+  const { h } = await skillsCtx()
   const { readFile } = await import('node:fs/promises')
   console.log(await readFile(h.layout.skillFile(slug), 'utf8').catch(() => c.dim('(not found)')))
 })
 skillsCmd
   .command('why <slug>')
-  .description('the sessions this was mined from')
+  .description('what this was built from — per line for a ledger, per session for a procedure')
   .action(async (slug: string) => {
-    const h = await ctx()
+    const { h, db } = await skillsCtx()
     const { skillEvidence } = await import('./organize/skills.ts')
-    const db = await h.db()
+
+    // For a ledger the useful question is per LINE — who said this, in what
+    // words, and what did it replace — not which sessions contributed.
+    const { ledgerFor, ledgerHistory } = await import('./organize/ledger.ts')
+    const ledger = await ledgerFor(h.layout, h.config, slug)
+    if (ledger) {
+      const entries = ledgerHistory(db, ledger.name)
+      if (wantJson()) return printJson(entries)
+      if (entries.length === 0) return console.log(c.dim('no entries yet'))
+      for (const e of entries) {
+        const when = new Date(e.observed).toISOString().slice(0, 10)
+        const head = `${c.bold(e.subject)}  ${c.dim(`${when} · ${e.raw_id}`)}`
+        console.log(e.superseded ? c.dim(`  superseded  ${e.subject}  ${when}`) : head)
+        if (!e.superseded) {
+          console.log(`  ${e.statement}`)
+          if (e.quote) console.log(c.dim(`  “${e.quote}”`))
+        }
+      }
+      return
+    }
+
     const rows = skillEvidence(db, slug)
-    if (wantJson()) return printJson(rows)
-    if (rows.length === 0) return console.log(c.dim('no recorded evidence'))
+    const { outcomeHistory, reliability } = await import('./organize/reliability.ts')
+    const rel = reliability(db, slug)
+    const outcomes = outcomeHistory(db, slug)
+    if (wantJson()) return printJson({ evidence: rows, reliability: rel, outcomes })
+    if (rows.length === 0 && outcomes.length === 0) {
+      return console.log(c.dim('no recorded evidence'))
+    }
+    if (outcomes.length > 0) {
+      console.log(
+        c.bold(
+          `reliability η ${rel.eta.toFixed(2)} (${rel.passes}/${rel.trials})  ${rel.lifecycle}`,
+        ),
+      )
+      for (const o of outcomes.slice(0, 8)) {
+        const when = new Date(o.at).toISOString().slice(0, 10)
+        const mark = o.signal === 'pass' ? c.green('+') : c.red('-')
+        console.log(`  ${mark} ${when}  ${o.source}${o.detail ? c.dim(`  ${o.detail}`) : ''}`)
+      }
+      console.log('')
+    }
     for (const e of rows) {
       const r = db
         .prepare<{ title: string; path: string }>('SELECT title, path FROM raw WHERE id = :i')
@@ -1615,25 +1687,40 @@ skillsCmd
   })
 skillsCmd
   .command('accept <slug...>')
-  .description('promote proposals to accepted, without the interactive prompt')
-  .action(async (slugs: string[]) => {
-    const h = await ctx()
-    const { listSkills, setSkillState } = await import('./organize/skills.ts')
+  .description('say yes: the skill goes live and is installed where your agent reads it')
+  .option('--project', 'install into ./.claude/skills instead of the default target')
+  .option('--no-install', 'accept without installing (leaves it inside the store only)')
+  .action(async (slugs: string[], o: { project?: boolean; install?: boolean }) => {
+    const { h, db } = await skillsCtx()
+    const { acceptSkill, listSkills, setSkillState } = await import('./organize/skills.ts')
     const { writeResolver } = await import('./organize/skillify.ts')
-    const db = await h.db()
-    for (const slug of slugs) setSkillState(db, slug, 'accepted')
+    const target = o.project ? join(process.cwd(), '.claude', 'skills') : undefined
+    for (const slug of slugs) {
+      if (o.install === false) {
+        setSkillState(db, slug, 'accepted')
+        console.log(`${c.green('accepted')} ${slug} ${c.dim('(not installed)')}`)
+        continue
+      }
+      const r = await acceptSkill(db, h.layout, h.config, slug, target)
+      if (r.outcome === 'conflict' || r.outcome === 'failed') {
+        console.log(
+          `${c.yellow('accepted')} ${slug} ${c.dim(`but not installed — ${r.detail ?? r.outcome}`)}`,
+        )
+        console.log(c.dim(`  hoppr skills install ${slug} --force   to overwrite`))
+      } else {
+        console.log(`${c.green('accepted')} ${slug} ${c.dim(`→ ${r.target}`)}`)
+      }
+    }
     await writeResolver(h.layout, listSkills(db))
-    console.log(`${c.green('accepted')} ${slugs.join(', ')}`)
   })
 
 skillsCmd
   .command('reject <slug...>')
   .description('decline proposals; they will not be proposed again')
   .action(async (slugs: string[]) => {
-    const h = await ctx()
+    const { h, db } = await skillsCtx()
     const { listSkills, setSkillState } = await import('./organize/skills.ts')
     const { writeResolver } = await import('./organize/skillify.ts')
-    const db = await h.db()
     for (const slug of slugs) setSkillState(db, slug, 'rejected')
     await writeResolver(h.layout, listSkills(db))
     console.log(`${c.dim('rejected')} ${slugs.join(', ')}`)
@@ -1643,10 +1730,9 @@ skillsCmd
   .command('review')
   .description('accept or reject proposals, one at a time')
   .action(async () => {
-    const h = await ctx()
-    const { listSkills, setSkillState } = await import('./organize/skills.ts')
+    const { h, db } = await skillsCtx()
+    const { acceptSkill, listSkills, setSkillState } = await import('./organize/skills.ts')
     const { writeResolver } = await import('./organize/skillify.ts')
-    const db = await h.db()
     const pending = listSkills(db, 'proposed')
     if (pending.length === 0) return console.log(c.dim('nothing to review'))
 
@@ -1694,8 +1780,14 @@ skillsCmd
         const choice = ans.trim().toLowerCase()
         if (choice === 'q') break
         if (choice === 'a') {
-          setSkillState(db, s.slug, 'accepted')
-          console.log(c.green('accepted'))
+          // One yes. Accepting IS installing — asking twice is how a review
+          // queue stops being worked through.
+          const r = await acceptSkill(db, h.layout, h.config, s.slug)
+          if (r.outcome === 'conflict' || r.outcome === 'failed') {
+            console.log(c.yellow(`accepted, but not installed — ${r.detail ?? r.outcome}`))
+          } else {
+            console.log(`${c.green('accepted')} ${c.dim(`→ ${r.target}`)}`)
+          }
         } else if (choice === 'r') {
           setSkillState(db, s.slug, 'rejected')
           console.log(c.dim('rejected — it will not be proposed again'))
@@ -1710,34 +1802,48 @@ skillsCmd
 skillsCmd
   .command('install <slug>')
   .option('--project', 'install into ./.claude/skills')
+  .option('--to <harness>', 'claude-code | openclaw | codex | opencode')
   .option('--target <dir>')
   .option('--force')
-  .action(async (slug: string, o: { project?: boolean; target?: string; force?: boolean }) => {
-    const h = await ctx()
-    const { installSkill } = await import('./organize/skills.ts')
-    const { join } = await import('node:path')
-    // Explicit flag, then --project, then the configured default. Without the
-    // last one `[skills] default_target` was a setting nothing consulted.
-    const target =
-      o.target ??
-      (o.project ? join(process.cwd(), '.claude', 'skills') : undefined) ??
-      Layout.expand(h.config.skills.default_target)
-    const r = await installSkill(h.layout, await h.db(), slug, { target, force: o.force })
-    if (wantJson()) return printJson(r)
-    const tag =
-      r.outcome === 'conflict'
-        ? c.yellow('conflict')
-        : r.outcome === 'failed'
-          ? c.red('failed')
-          : c.green(r.outcome)
-    console.log(`${tag} ${r.target}${r.detail ? `\n  ${c.dim(r.detail)}` : ''}`)
-    if (r.outcome === 'conflict') process.exitCode = 1
-  })
+  .action(
+    async (
+      slug: string,
+      o: { project?: boolean; to?: string; target?: string; force?: boolean },
+    ) => {
+      const { h } = await skillsCtx()
+      const { HARNESS_TARGETS, installSkill } = await import('./organize/skills.ts')
+      const { join } = await import('node:path')
+      if (o.to && !HARNESS_TARGETS[o.to]) {
+        throw HopprError.user(
+          `unknown harness '${o.to}' — try ${Object.keys(HARNESS_TARGETS).join(', ')}, ` +
+            'or point --target at its skills directory',
+        )
+      }
+      // Explicit path, then a named harness, then --project, then the
+      // configured default. Without the last one `[skills] default_target`
+      // was a setting nothing consulted.
+      const target =
+        o.target ??
+        (o.to ? Layout.expand(HARNESS_TARGETS[o.to]!) : undefined) ??
+        (o.project ? join(process.cwd(), '.claude', 'skills') : undefined) ??
+        Layout.expand(h.config.skills.default_target)
+      const r = await installSkill(h.layout, await h.db(), slug, { target, force: o.force })
+      if (wantJson()) return printJson(r)
+      const tag =
+        r.outcome === 'conflict'
+          ? c.yellow('conflict')
+          : r.outcome === 'failed'
+            ? c.red('failed')
+            : c.green(r.outcome)
+      console.log(`${tag} ${r.target}${r.detail ? `\n  ${c.dim(r.detail)}` : ''}`)
+      if (r.outcome === 'conflict') process.exitCode = 1
+    },
+  )
 skillsCmd
   .command('uninstall <slug>')
   .option('--target <dir>')
   .action(async (slug: string, o: { target?: string }) => {
-    const h = await ctx()
+    const { h } = await skillsCtx()
     const { uninstallSkill } = await import('./organize/skills.ts')
     const r = await uninstallSkill(await h.db(), slug, o.target)
     console.log(`${r.outcome} ${r.target}${r.detail ? c.dim(`  ${r.detail}`) : ''}`)
@@ -1746,11 +1852,10 @@ skillsCmd
   .command('audit')
   .description('score every skill against the promotion gate')
   .action(async () => {
-    const h = await ctx()
+    const { h, db } = await skillsCtx()
     const { listSkills } = await import('./organize/skills.ts')
     const { auditSkills } = await import('./organize/skillify.ts')
     const { readFile } = await import('node:fs/promises')
-    const db = await h.db()
     const rows = listSkills(db)
     const bodies = new Map<string, string>()
     for (const r of rows) {
@@ -1772,10 +1877,40 @@ skillsCmd
   })
 
 skillsCmd
+  .command('mark <slug>')
+  .description('record whether a skill actually helped')
+  .option('--worked', 'it did the right thing')
+  .option('--wrong', 'it was wrong, stale, or made things worse')
+  .option('--note <text>', 'why')
+  .action(async (slug: string, o: { worked?: boolean; wrong?: boolean; note?: string }) => {
+    if (Boolean(o.worked) === Boolean(o.wrong)) {
+      throw HopprError.user('pass exactly one of --worked or --wrong')
+    }
+    const { h, db } = await skillsCtx()
+    const { recordOutcome, refreshLifecycles, reliability } = await import(
+      './organize/reliability.ts'
+    )
+    recordOutcome(db, slug, o.worked ? 'pass' : 'fail', 'marked', o.note ?? '')
+    refreshLifecycles(db, h.config.skills.archive_below)
+    const r = reliability(db, slug)
+    console.log(
+      `${c.green('recorded')} ${slug}  ${c.dim(
+        `η ${r.eta.toFixed(2)} (${r.passes}/${r.trials})  ${r.lifecycle}`,
+      )}`,
+    )
+    if (r.lifecycle === 'archived') {
+      console.log(c.dim('  archived — dropped from RESOLVER.md, still on disk and searchable'))
+    }
+    const { listSkills } = await import('./organize/skills.ts')
+    const { writeResolver } = await import('./organize/skillify.ts')
+    await writeResolver(h.layout, listSkills(db))
+  })
+
+skillsCmd
   .command('resolver')
   .description('regenerate the skill dispatcher')
   .action(async () => {
-    const h = await ctx()
+    const { h } = await skillsCtx()
     const { listSkills } = await import('./organize/skills.ts')
     const { writeResolver } = await import('./organize/skillify.ts')
     const p = await writeResolver(h.layout, listSkills(await h.db()))
@@ -1786,7 +1921,7 @@ skillsCmd
   .command('mine')
   .description('mine now without a full deep pass')
   .action(async () => {
-    const h = await ctx()
+    const { h, db } = await skillsCtx()
     if (!curationFor(h.config).skills) {
       throw HopprError.user(
         `'${h.name}' is a ${h.config.hopper.profile} hoppr — there are no procedures in it to mine.\n` +
@@ -1795,13 +1930,26 @@ skillsCmd
     }
     const llm = await h.llm('quality')
     if (!llm) throw HopprError.user('skill mining needs an LLM provider')
+    const tick = (m: string) => {
+      if (process.stdout.isTTY) process.stdout.write(`\r  ${c.dim(m.padEnd(60))}`)
+    }
+
+    // Same three stages the deep pass runs, in the same order: read the new
+    // sessions for what they established, assemble the ledgers from those
+    // claims, then mine procedures from the clusters. Skipping the first would
+    // leave nothing to cluster on.
+    const { extractLessons } = await import('./organize/lessons.ts')
+    const lessons = await extractLessons(db, h.layout, h.config, llm, { onProgress: tick })
+    const { buildLedgers } = await import('./organize/ledger.ts')
+    const led = await buildLedgers(db, h.layout, h.config)
+
     const { mineSkills } = await import('./organize/skills.ts')
-    const st = await mineSkills(await h.db(), h.layout, h.config, llm, {
-      onProgress: (m) => {
-        if (process.stdout.isTTY) process.stdout.write(`\r  ${c.dim(m.padEnd(60))}`)
-      },
-    })
-    if (process.stdout.isTTY) process.stdout.write('\r')
+    const st = await mineSkills(db, h.layout, h.config, llm, { onProgress: tick })
+    if (process.stdout.isTTY) process.stdout.write(`\r${' '.repeat(64)}\r`)
+    if (lessons.lessons) {
+      console.log(`${lessons.lessons} lessons from ${lessons.sessionsRead} sessions`)
+    }
+    if (led.logLine) console.log(led.logLine)
     console.log(st.logLine)
   })
 
@@ -1898,6 +2046,21 @@ program
     existsSync(layout.claudeMd)
       ? push('ok', 'CLAUDE.md present (store is self-describing)')
       : push('warn', 'CLAUDE.md missing — run `hoppr schema sync`')
+
+    // Where an accepted skill would actually land. `SKILL.md` is a shape
+    // several harnesses read, and knowing which of them are on this machine
+    // is the difference between "supported" and "you could probably make it
+    // work if you knew the path".
+    if (curationFor(config).skills) {
+      const { detectedHarnesses, HARNESS_TARGETS } = await import('./organize/skills.ts')
+      const found = detectedHarnesses()
+      const dflt = Layout.expand(config.skills.default_target)
+      push('ok', `skills install to ${dflt}`)
+      const others = found.filter((x) => Layout.expand(HARNESS_TARGETS[x]!) !== dflt)
+      if (others.length) {
+        push('ok', `also on this machine: ${others.map((x) => `--to ${x}`).join('  ')}`)
+      }
+    }
 
     // A misspelt preset falls back rather than refusing to open the store —
     // a typo must not lock you out of your own notes. But silence is the wrong

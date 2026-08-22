@@ -2,6 +2,7 @@ import type { Config } from '../config/schema.ts'
 import type { Db } from '../db/driver.ts'
 import { buildFilters, type Candidate, filterOnly, ftsSearch } from './fts.ts'
 import { type Arm, applyBoosts, fuse } from './fuse.ts'
+import { glossaryExpand } from './glossary.ts'
 import { type ParsedQuery, parseQuery } from './query.ts'
 import { snippetFor } from './snippet.ts'
 import { vectorSearch } from './vector.ts'
@@ -51,7 +52,14 @@ export interface SearchOptions {
 export interface SearchResult {
   hits: SearchHit[]
   query: ParsedQuery
-  meta: { candidates: number; arms: string[]; tookMs: number; mode: string }
+  meta: {
+    candidates: number
+    arms: string[]
+    tookMs: number
+    mode: string
+    /** Vocabulary subjects that expanded the query, if any. */
+    glossary: string[]
+  }
 }
 
 interface DocRow {
@@ -78,6 +86,17 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
   })
   const k = Math.max(50, limit * 5)
 
+  // The vocabulary ledger, applied to the query rather than to the index.
+  // Searching for a word you use that the documents do not is the failure this
+  // fixes; the definition was already recorded, it just was not reachable from
+  // here. OR'd alongside the original terms, so it can only add candidates.
+  const expansion = cfg.retrieval.glossary_expansion
+    ? glossaryExpand(db, parsed.text)
+    : { terms: [], from: [] }
+  const keywordText = expansion.terms.length
+    ? `${parsed.text} ${expansion.terms.join(' ')}`
+    : parsed.text
+
   const arms: Arm[] = []
   if (parsed.text) {
     if (mode !== 'vec') {
@@ -85,7 +104,7 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
         name: 'fts',
         weight: cfg.retrieval.rerank.weights.keyword,
         lowerIsBetter: true, // bm25
-        candidates: ftsSearch(db, parsed.text, parsed.filters, k),
+        candidates: ftsSearch(db, keywordText, parsed.filters, k),
       })
     }
     if (mode !== 'fts' && opts.queryVector) {
@@ -110,7 +129,13 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
     return {
       hits: [],
       query: parsed,
-      meta: { candidates: 0, arms: arms.map((a) => a.name), tookMs: Date.now() - started, mode },
+      meta: {
+        candidates: 0,
+        arms: arms.map((a) => a.name),
+        tookMs: Date.now() - started,
+        mode,
+        glossary: expansion.from,
+      },
     }
   }
 
@@ -169,6 +194,7 @@ export function search(db: Db, cfg: Config, input: string, opts: SearchOptions =
       candidates: candidateCount,
       arms: arms.map((a) => a.name),
       tookMs: Date.now() - started,
+      glossary: expansion.from,
       mode,
     },
   }

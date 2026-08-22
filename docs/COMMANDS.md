@@ -151,18 +151,67 @@ git -C <store> revert <sha>
 ```bash
 hoppr skills list
 hoppr skills show <slug>
-hoppr skills why <slug>            # the exact sessions it was mined from
+hoppr skills why <slug>            # per line for a ledger, per session for a procedure
 hoppr skills review                # accept/reject interactively
 hoppr skills accept <slug...>      # non-interactive, for pipes and CI
 hoppr skills reject <slug...>      # remembered; not re-proposed
-hoppr skills install <slug> [--project|--target <dir>]
+hoppr skills install <slug> [--to <harness>|--project|--target <dir>]
 hoppr skills uninstall <slug>
 hoppr skills audit                 # score every skill against the promotion gate
 hoppr skills resolver              # regenerate the dispatcher table
-hoppr skills mine                  # mine now without a full deep pass
+hoppr skills mine                  # read, assemble and mine now, without a full deep pass
+hoppr skills mark <slug> --worked  # record that it did the right thing
+hoppr skills mark <slug> --wrong   # record that it was wrong, stale, or unhelpful
 ```
 
-Skills must be accepted and installed explicitly.
+Four kinds, all written as `SKILL.md`:
+
+| slug | how it is made |
+|---|---|
+| `glossary` | a list built from your sessions: what the nouns in your world mean and where they live |
+| `preferences` | a list built from your sessions: rules and tastes, each marked MUST or PREFER |
+| `comms-preferences`, `working-agreements` | hand-written files hoppr ships |
+| anything else | a procedure, mined from a cluster of sessions and then verified |
+
+A list is assembled from extracted claims **by code, not by a model** — so every line cites
+a real capture, the diff is exactly what changed, and rebuilding is free. A newer statement about the same subject replaces the older one;
+`git log --follow` on the file is the history. `hoppr skills why <ledger>` shows every
+line's quote, its date, and what it superseded.
+
+A statement made once is enough for a list. For a procedure, whether it recurred is
+corroboration; whether it *generalizes* is judged by the miner reading the transcript and
+re-checked by a refutation pass, because counting repetitions is a proxy that is wrong in
+both directions.
+
+Only quotes from what you typed count toward a ledger. Assistant prose, tool output, and
+files the agent read are all excluded, and the check is against the transcript rather than
+a prompt instruction.
+
+`hoppr skills audit` scores procedures against the promotion gate; ledgers are not scored,
+since a vocabulary list has no steps and no pitfalls to have.
+
+Edit any generated `SKILL.md` by hand and hoppr stops rewriting its prose, keeping only
+its evidence links current. It records that in `<store>/LOCKED`:
+
+```
+# Things hoppr generated that it must now leave alone.
+# Globs are relative to curated/, the only place hoppr writes.
+
+# hand-edited 2026-08-21
+skills/deploy-hoppr/**
+```
+
+**Two rule sets, two files, about two different people's files:**
+
+| file | where | says |
+|---|---|---|
+| `.hopprignore` | beside your data | what hoppr must not index, and what it may index but never send to a model |
+| `LOCKED` | inside the store | what hoppr generated and you have since taken over |
+
+Delete a line from `LOCKED` to hand that file back to hoppr.
+
+The hand-edit also counts against the skill's reliability: someone read it, used it, and
+had to correct it.
 
 ## Tables
 
@@ -272,7 +321,9 @@ Arrays replace rather than merging. Keys are read from the environment first, th
 ### `.hopprignore`
 
 ```
-# gitignore syntax; the folder's own .gitignore is honoured too
+# .hopprignore — about YOUR folder. gitignore-style patterns, and the folder's
+# own .gitignore is honoured too. Nothing here concerns hoppr's own output;
+# that lives in <store>/LOCKED.
 
 secret/            # never indexed — hoppr does not know these exist
 *.zip
@@ -282,7 +333,9 @@ archive/**
 *.csv
 ```
 
-Indexing is pure SQL, so `[no-curate]` files are fully searchable at **zero token cost**.
+`[no-curate]` files are fully searchable at **zero token cost**, because indexing is pure
+SQL. The difference between the two lists is only how much attention a file gets: skipped
+files are invisible, no-curate files are findable but never leave the machine.
 
 ### Retrieval
 
@@ -290,6 +343,15 @@ Indexing is pure SQL, so `[no-curate]` files are fully searchable at **zero toke
 [retrieval]
 embeddings = true          # vector search; keyword is always on
 graph = false              # typed entities and relations
+glossary_expansion = true  # expand queries with the vocabulary ledger
+
+`glossary_expansion` covers the case where you search for a word you use and the
+documents do not — searching `sitrep` when the files all say "status report". hoppr
+already records what your terms mean in the `vocabulary` ledger; this makes that
+reachable from search rather than only from an agent that loads the SKILL.md. It fires
+only when a ledger subject appears in your query as a whole phrase, and the extra terms
+are OR'd alongside yours, so it can only add results. `hoppr search --explain` names
+which terms expanded.
 
 [retrieval.extract]        # the expensive parts of "index this folder"
 ocr = true                 # local OCR over images — free, ~800ms each
@@ -320,13 +382,77 @@ out of the main store configuration.
 
 ```toml
 [skills]
-mine = "auto"              # auto | targeted | off
-targets = ["cutting a release", "debugging a flaky test suite"]
-seed = ["comms-preferences", "working-agreements"]
+mine = "auto"              # auto | targeted | off — procedures only
+approve = "ledgers"        # review | ledgers | auto
+edit_budget = 4            # localized edits per revision pass; 0 freezes existing skills
+archive_below = 0.4        # reliability floor; 0 never archives
+min_evidence = 1           # sessions before a procedure may be proposed
 ```
 
-`seed` skills ship with hoppr and are written into every new store. Mined skills require
-enough related transcripts to form a cluster. Editing a generated skill pins it.
+### What should exist
+
+Two lists of names in `[skills]`, written into your store's `hoppr.toml` at init:
+
+```toml
+[skills]
+have = [
+  "glossary",           # a list hoppr builds from your sessions
+  "preferences",
+  "comms-preferences",  # a ready-made file hoppr ships
+  "working-agreements",
+]
+find = ["cutting a release"]   # a procedure to go looking for
+```
+
+`have` is what hoppr maintains; `find` is what it goes looking for. Delete a name and
+that skill stops being maintained — nothing is added back behind you.
+
+**What each `have` collects lives in the prompt, not the config.** `curated/prompts/
+lesson-extract.md` is ejected into your store at init and defines one bin per section:
+
+```markdown
+## Bins
+
+### glossary
+heading: This person's world
+
+Which nouns in these sessions would a new agent get wrong? Look for a term being
+defined or corrected, and for the moment someone says where a thing actually lives…
+```
+
+A name in `have` with a matching bin is a list hoppr builds. A name with no bin is a file
+hoppr ships. That is the whole rule, and it's why there's no `kind` field to set.
+
+To add a list of your own: write a `### constraints` section in the prompt, add
+`"constraints"` to `have`. To change what an existing one collects, edit its section —
+the question is the thing that decides what lands in the file, so it belongs where you
+can read it rather than escaped into a TOML string.
+
+`graded: true` on a bin marks each of its lines MUST or PREFER. `mine = "targeted"`
+restricts procedure mining to the `find` list; under `auto` those are looked for and so is
+anything else that recurs.
+
+`approve` decides what still needs a human. `review` holds everything; `ledgers` (the
+default) auto-accepts the ledgers and still reviews mined procedures; `auto` accepts
+both. The split is deliberate — a ledger line is a verbatim quote of something you typed,
+assembled by code and superseded on change, while a mined procedure is a model's prose
+about how work gets done. Accepting is never installing: accepting writes inside the
+store and is reversible, installing reaches out to `~/.claude/skills`.
+
+`edit_budget` bounds how much a revision may change at once. An existing skill is
+revised by localized edits rather than regenerated, because an unbounded rewrite erases
+rules that were earned and overfits the whole skill to whatever went wrong most recently.
+
+`archive_below` is the floor for a skill's reliability, `η = (n_pass + 1)/(n_trial + 2)`.
+hoppr has no benchmark, so what it counts is how often a human had to intervene —
+rejections, hand-edits, uninstalls, and `hoppr skills mark`. That makes it a **correction
+rate, not a success rate**: a skill nobody has touched scores well because nothing went
+visibly wrong, not because anything went right. Below the floor a skill leaves
+`RESOLVER.md` and stops being dispatched; it stays on disk and stays searchable.
+
+`kind = "packaged"` skills ship with hoppr and are written into every new store — they
+encode how you work before any mining has happened. `min_evidence` applies to mined
+procedures only; ledgers accumulate from single statements.
 
 ### Advanced
 

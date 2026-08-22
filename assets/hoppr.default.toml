@@ -88,7 +88,6 @@ fast_batch = 8                   # captures per model call
 deep_cron = "0 3 * * *"          # nightly; catches up on wake if missed
 # Curated paths the agent must never rewrite, relative to curated/.
 # Hand-editing a page already pins it; this is the pin you set BEFORE writing.
-protect = []                     # e.g. ["wiki/overview.md", "skills/**"]
 
 [curate.budget]
 max_usd_per_day = 2.0
@@ -110,12 +109,32 @@ max_wait_ms = 300000             # …but never wait longer than this
 # ── skills ────────────────────────────────────────────────────────────
 [skills]
 enabled = true
-mine = "auto"                    # auto | targeted | off
-# targets = ["how we cut a release", "debugging flaky tests"]
-seed = ["comms-preferences", "working-agreements"]
-min_evidence = 3                 # recurrences before a proposal
+mine = "auto"                    # auto | targeted | off — procedures only
+approve = "ledgers"              # review | ledgers | auto
+min_evidence = 3                 # recurrences before a procedure is proposed
 min_confidence = 0.6
+edit_budget = 4                  # localized edits per revision; 0 freezes skills
+archive_below = 0.4              # reliability floor; 0 never archives
 default_target = "~/.claude/skills"
+
+# The skills hoppr maintains, by name. Nothing is added behind your back —
+# delete a name and that skill stops being maintained.
+#
+# A name here is either a list hoppr builds from your sessions or a ready-made
+# file it ships; which one it is depends on whether
+# curated/prompts/lesson-extract.md defines a bin for it. That prompt is where
+# the questions live, and it is yours to edit.
+have = [
+  "glossary",
+  "preferences",
+  "comms-preferences",
+  "working-agreements",
+]
+
+# Procedures to go looking for, in plain language. Under mine = "auto" these
+# are looked for and so is anything else that recurs; under "targeted", only
+# these.
+find = []
 
 # ── tables ────────────────────────────────────────────────────────────
 [tables.tags]

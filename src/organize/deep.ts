@@ -16,6 +16,8 @@ import {
   type WikiPage,
 } from '../store/wiki.ts'
 import * as journal from './journal.ts'
+import { buildLedgers } from './ledger.ts'
+import { extractLessons } from './lessons.ts'
 import { mineSkills } from './skills.ts'
 import { loadTaxonomy, recount, saveTaxonomy, type Taxonomy } from './taxonomy.ts'
 
@@ -53,6 +55,8 @@ export interface DeepStats {
   merges: number
   concepts: number
   skillsProposed: number
+  /** Typed claims extracted from sessions this pass. */
+  lessons: number
   lintFindings: number
   logLine: string
 }
@@ -88,6 +92,7 @@ export async function deepPass(
     merges: 0,
     concepts: 0,
     skillsProposed: 0,
+    lessons: 0,
     lintFindings: 0,
     logLine: '',
   }
@@ -117,6 +122,31 @@ export async function deepPass(
   // Only where procedures exist. A folder of papers has no workflow in it, and
   // mining one would invent a procedure out of prose — worse than mining none.
   if (curationFor(h.config).skills) {
+    // 3a. Read each new session once for what it ESTABLISHED. Everything below
+    //     works off these claims rather than off the transcripts, which is what
+    //     lets a stated preference or a defined term become a skill at all.
+    try {
+      const lessons = await extractLessons(db, h.layout, h.config, llm, {
+        onProgress: opts.onProgress,
+      })
+      st.lessons = lessons.lessons
+      if (lessons.lessons)
+        notes.push(`${lessons.lessons} lessons from ${lessons.sessionsRead} sessions`)
+    } catch (e) {
+      notes.push(`lesson stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3b. The standing ledgers, assembled by code from those claims. No model
+    //     call, so this is cheap enough to run every pass and its diff is
+    //     exactly the set of things that changed.
+    try {
+      const led = await buildLedgers(db, h.layout, h.config)
+      if (led.logLine) notes.push(led.logLine)
+    } catch (e) {
+      notes.push(`ledger stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3c. Procedures, which still need the transcripts and the promotion gate.
     try {
       opts.onProgress?.('mining skills')
       const mined = await mineSkills(db, h.layout, h.config, llm, { onProgress: opts.onProgress })

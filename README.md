@@ -57,7 +57,7 @@ my-folder/               the folder is the raw tier; your files stay put
     │   ├── wiki/        source pages + concepts + wikilinks
     │   ├── tables/      structured JSONL with source traces
     │   ├── graph/       typed entities + cited edges as grep-friendly JSONL
-    │   ├── skills/      optional procedures distilled from agent logs
+    │   ├── skills/      glossary, preferences, and mined procedures
     │   └── prompts/     editable curation instructions
     ├── schemas/         graph / wiki / skills, when they outgrow one file
     ├── .index/          BM25 + vector search
@@ -160,7 +160,7 @@ Presets are starting points, not locked modes. The individual layers remain conf
 - `.hoppr/curated/tables/` contains standing table schemas.
 - `.hoppr/schemas/` defines wiki outlines, entity types, relationships, and skill settings.
 - `.hoppr/curated/prompts/` contains the editable prompts used during curation.
-- Hand-edited generated pages and rows are pinned instead of overwritten.
+- Hand-edited generated files are recorded in `<store>/LOCKED` and never overwritten.
 
 ```toml
 [retrieval]
@@ -239,15 +239,46 @@ changes. `converging = true` reuses existing values as preferred vocabulary.
 
 ## Optional: turn agent history into reusable skills
 
-The deep pass groups transcripts by procedural similarity: repeated tool sequences,
-recurring failures, and fixes that worked.
+The deep pass reads each new session once for what it *established* — not what it was
+about — as typed claims, each carrying the quote that established it. Those claims become
+four kinds of skill, all in the `SKILL.md` format harnesses already load.
+
+| skill | holds | how it is made |
+|---|---|---|
+| `glossary` | what the nouns in your world mean and where they live | a list, built by code from your sessions |
+| `preferences` | rules and tastes, each marked MUST or PREFER | the same |
+| procedures | how a recurring job gets done, and what goes wrong | mined per cluster, then verified |
+
+The two lists accumulate, assembled from the claims **by code rather than by a model**, so
+every line cites a real capture and rebuilding costs nothing. A newer statement about the
+same subject replaces the older one; `git log --follow` on the file is the history.
+
+**A preference stated once is binding.** Requiring three repetitions would mean the only
+preferences hoppr learns are the ones you have already had to repeat three times.
+
+Procedures still need the transcripts — the steps and the failures are in there. They are
+mined per cluster, scored against a gate that requires a real trigger, concrete steps and
+a pitfalls section, and then handed to a second pass whose job is to **refute** them
+against their own evidence. Whether a procedure recurred is corroboration; whether it
+generalizes is judged, not counted.
 
 ```bash
 hoppr deep
 hoppr skills review
-hoppr skills why debug-flaky-vitest
+hoppr skills why preferences          # per line: who said it, in what words, what it replaced
 hoppr skills install debug-flaky-vitest
+hoppr skills mark debug-flaky-vitest --wrong   # it was stale; hoppr counts that
 ```
+
+A skill that keeps needing correction stops being dispatched. hoppr has no benchmark, so
+what it counts is how often a human had to intervene — rejections, hand-edits, uninstalls,
+and `mark`. That is a correction rate rather than a success rate, and archiving a skill
+removes it from the dispatcher without deleting anything.
+
+Only quotes from you count toward the three ledgers. A transcript also contains assistant
+prose, tool output, and any file the agent read, all of which read like confident claims
+about how things should be done; hoppr checks the quote against what you actually typed
+rather than asking the model to be careful.
 
 hoppr never auto-installs a skill. Proposals require explicit acceptance and installation,
 and rejected proposals are remembered.

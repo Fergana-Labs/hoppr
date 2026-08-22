@@ -24,6 +24,19 @@ procedure, return an empty list — that is the correct answer and it costs
 nothing. A mediocre skill is worse than no skill, because it will be loaded into
 every future session.
 
+## What these sessions have in common
+
+These sessions were grouped because each one established something about the
+same task: **{{subject}}**
+
+The claims that grouped them:
+
+{{statements}}
+
+Those are one-sentence summaries, which is exactly what a skill must not be.
+Your job is what they leave out — the steps, the order, and the things that
+went wrong on the way.
+
 ## Sessions
 
 {{sessions}}

@@ -1,5 +1,6 @@
 import type { Config } from '../config/schema.ts'
 import { listAssets, readAsset } from '../core/assets.ts'
+import { resolveWants } from '../organize/wants.ts'
 import { writeIfChanged } from './atomic.ts'
 import type { Layout } from './layout.ts'
 
@@ -18,7 +19,7 @@ import type { Layout } from './layout.ts'
  */
 export async function seedSkills(l: Layout, config: Config): Promise<string[]> {
   if (!config.skills.enabled) return []
-  const want = new Set(config.skills.seed)
+  const want = new Set((await resolveWants(l, config)).packaged)
   if (want.size === 0) return []
 
   const written: string[] = []

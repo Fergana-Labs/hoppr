@@ -263,7 +263,12 @@ describe('docs stay in step with the code', () => {
       for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
         if (v && typeof v === 'object' && !Array.isArray(v)) continue
         if (exempt.has(k)) continue
-        if (!src.includes(k)) dead.push(`${section}.${k}`)
+        // Word-boundary property access, not a bare substring. `includes('mine')`
+        // matched `mineSkills`, `mining` and `determine`, so `[skills] mine`
+        // sat in the schema and the docs for months while nothing read it —
+        // the exact failure this test exists to catch.
+        const read = new RegExp(`\\.${k}\\b|\\b${k}\\s*[,}:]`).test(src)
+        if (!read) dead.push(`${section}.${k}`)
       }
     }
     expect(dead, `config nothing reads: ${dead.join(', ')}`).toEqual([])

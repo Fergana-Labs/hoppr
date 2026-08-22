@@ -5,12 +5,11 @@ import { describe, expect, it } from 'vitest'
 import { defaults } from '../src/config/schema.ts'
 import { Hoppr } from '../src/core/hoppr.ts'
 import type { JsonOptions, LlmProvider } from '../src/llm/provider.ts'
+import { clusterProcedures } from '../src/organize/lessons.ts'
 import {
-  clusterByProcedure,
   installSkill,
   listSkills,
   mineSkills,
-  procedureSignature,
   setSkillState,
   skillEvidence,
   uninstallSkill,
@@ -22,6 +21,8 @@ class MockLlm implements LlmProvider {
   readonly id = 'mock'
   readonly supportsVision = true
   calls = 0
+  verifies = 0
+  supported = true
   readonly responses: unknown[]
   constructor(responses: unknown[]) {
     this.responses = responses
@@ -33,6 +34,17 @@ class MockLlm implements LlmProvider {
     return { text: '', usage: {} }
   }
   async completeJson<T>(o: JsonOptions<T>) {
+    // Verification is a separate call with its own shape. A mock that replayed
+    // the mining payload into it would fail the schema, the verifier would
+    // refuse to wave anything through, and every mining test would go red for
+    // a reason that has nothing to do with mining.
+    if (o.purpose === 'skills.verify') {
+      this.verifies++
+      return {
+        value: o.schema.parse({ supported: this.supported, problem: '', notes: [] }),
+        usage: {},
+      }
+    }
     const raw = this.responses[Math.min(this.calls, this.responses.length - 1)]
     this.calls++
     return { value: o.schema.parse(raw), usage: { costUsd: 0.001 } }
@@ -73,35 +85,114 @@ async function seedSessions(h: Hoppr, texts: string[]) {
   })
 }
 
-describe('procedural clustering', () => {
-  it('signals on tools, commands and errors — not on subject matter', () => {
-    const sig = procedureSignature(flakyTestSession('auth'))
-    expect([...sig]).toContain('tool:bash')
-    expect([...sig]).toContain('cmd:vitest-run')
-    expect([...sig]).toContain('err:TypeError')
-    // The topic word is deliberately absent: two sessions about "auth" are not
-    // a skill; two that debug the same way are.
-    expect([...sig].some((s) => s.includes('auth'))).toBe(false)
+/**
+ * Sessions reach the miner already reduced to typed claims. Seeding those
+ * directly is what the extraction stage produces.
+ */
+async function seedLessons(
+  h: Hoppr,
+  rows: Array<{
+    raw: string
+    subject: string
+    statement: string
+    kind?: string
+    observed?: number
+  }>,
+) {
+  const db = await h.db()
+  rows.forEach((r, i) => {
+    db.prepare(
+      `INSERT INTO lessons(id,raw_id,kind,subject,statement,quote,confidence,observed,created)
+       VALUES (:id,:raw,:kind,:subj,:stmt,'because I said so',0.9,:obs,:now)`,
+    ).run({
+      id: `L${i}-${r.raw}-${r.subject}`.slice(0, 24),
+      raw: r.raw,
+      kind: r.kind ?? 'procedure',
+      subj: r.subject,
+      stmt: r.statement,
+      obs: r.observed ?? Date.now(),
+      now: Date.now(),
+    })
+  })
+}
+
+/** Three sessions that each established something about the same procedure. */
+async function seedMinable(h: Hoppr) {
+  await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+  await seedLessons(
+    h,
+    ['S0', 'S1', 'S2'].map((raw) => ({
+      raw,
+      subject: 'debug a flaky vitest suite',
+      statement: 'shuffle the seed, then hunt the leaked fake timer',
+    })),
+  )
+}
+
+describe('clustering on what a session established', () => {
+  async function withLessons(rows: Array<{ raw: string; subject: string; kind?: string }>) {
+    const t = await tempStore()
+    const h = new Hoppr({ layout: new Layout(t.layout.root), config: defaults(), sources: [] })
+    await seedSessions(
+      h,
+      rows.map(() => unrelatedSession()),
+    )
+    await seedLessons(
+      h,
+      rows.map((r) => ({ ...r, statement: `we do ${r.subject} this way` })),
+    )
+    return { h, t, db: await h.db() }
+  }
+
+  it('groups the things a tool-trace signature could never see', async () => {
+    // Every one of these is invisible to clustering on tool names, shell
+    // commands, and error classes — which is what this replaced.
+    const { h, t, db } = await withLessons([
+      { raw: 'S0', subject: 'deploy hoppr' },
+      { raw: 'S1', subject: 'deploying the hoppr package' },
+      { raw: 'S2', subject: 'deploy hoppr' },
+      { raw: 'S3', subject: 'answer inbound sales email' },
+    ])
+    try {
+      const clusters = clusterProcedures(db, 3)
+      expect(clusters).toHaveLength(1)
+      expect(clusters[0]!.rawIds.sort()).toEqual(['S0', 'S1', 'S2'])
+      h.close()
+    } finally {
+      await t.cleanup()
+    }
   })
 
-  it('groups sessions that share a procedure, and excludes one that does not', () => {
-    const sessions = [
-      { id: 'a', title: '', text: flakyTestSession('auth') },
-      { id: 'b', title: '', text: flakyTestSession('billing') },
-      { id: 'c', title: '', text: flakyTestSession('search') },
-      { id: 'd', title: '', text: unrelatedSession() },
-    ]
-    const clusters = clusterByProcedure(sessions, 3)
-    expect(clusters).toHaveLength(1)
-    expect(clusters[0]!.map((s) => s.id).sort()).toEqual(['a', 'b', 'c'])
+  it('counts distinct sessions, not repeated mentions in one', async () => {
+    // One session that talks about deploying three times is one piece of
+    // evidence. Counting mentions would let a single long session mint a skill.
+    const { h, t, db } = await withLessons([
+      { raw: 'S0', subject: 'deploy hoppr' },
+      { raw: 'S0', subject: 'deploy the hoppr cli' },
+      { raw: 'S0', subject: 'deploying hoppr' },
+    ])
+    try {
+      expect(clusterProcedures(db, 3)).toHaveLength(0)
+      h.close()
+    } finally {
+      await t.cleanup()
+    }
   })
 
-  it('forms no cluster when a workflow happened only once', () => {
-    const sessions = [
-      { id: 'a', title: '', text: flakyTestSession('auth') },
-      { id: 'd', title: '', text: unrelatedSession() },
-    ]
-    expect(clusterByProcedure(sessions, 3)).toHaveLength(0)
+  it('leaves ledger kinds out of procedure clustering', async () => {
+    const { h, t, db } = await withLessons([
+      { raw: 'S0', subject: 'writing tone', kind: 'preference' },
+      { raw: 'S1', subject: 'writing tone', kind: 'preference' },
+      { raw: 'S2', subject: 'writing tone', kind: 'preference' },
+    ])
+    try {
+      // Preferences become a ledger, not a mined procedure — they have no
+      // steps and no pitfalls to find.
+      expect(clusterProcedures(db, 3)).toHaveLength(0)
+      h.close()
+    } finally {
+      await t.cleanup()
+    }
   })
 })
 
@@ -115,6 +206,7 @@ describe('mining', () => {
           'Diagnose intermittently failing vitest suites. Use when tests pass alone but fail in a full run, or when CI is red and local is green.',
         body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n3. Add vi.useRealTimers() to afterEach\n\n## Pitfalls seen in practice\n- fake timers leak into the next file, so the failure surfaces far from its cause',
         evidence: ['S0', 'S1', 'S2'],
+        reusable: true,
         confidence: 0.85,
       },
     ],
@@ -129,7 +221,7 @@ describe('mining', () => {
   it("resolves evidence against the cluster, not the model's echoed ids", async () => {
     const { layout, h, cleanup } = await store()
     try {
-      await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+      await seedMinable(h)
       const db = await h.db()
       // Transcripts carry their own session UUIDs, and models return those
       // instead of the ids we supplied — which would leave every source
@@ -156,7 +248,7 @@ describe('mining', () => {
   it('writes a proposal with SKILL.md and a provenance marker', async () => {
     const { layout, h, cleanup } = await store()
     try {
-      await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+      await seedMinable(h)
       const db = await h.db()
       const st = await mineSkills(db, layout, defaults(), new MockLlm([proposal]))
       expect(st.proposed).toBe(1)
@@ -186,7 +278,7 @@ describe('mining', () => {
   it('lands as a proposal, never installed', async () => {
     const { layout, h, cleanup } = await store()
     try {
-      await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+      await seedMinable(h)
       const db = await h.db()
       await mineSkills(db, layout, defaults(), new MockLlm([proposal]))
       expect(listSkills(db)[0]!.state).toBe('proposed')
@@ -199,7 +291,7 @@ describe('mining', () => {
   it('does not re-propose something a human rejected', async () => {
     const { layout, h, cleanup } = await store()
     try {
-      await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+      await seedMinable(h)
       const db = await h.db()
       await mineSkills(db, layout, defaults(), new MockLlm([proposal]))
       setSkillState(db, 'debug-flaky-vitest', 'rejected')
@@ -217,12 +309,14 @@ describe('mining', () => {
   it('drops low-confidence and thin-evidence proposals', async () => {
     const { layout, h, cleanup } = await store()
     try {
-      await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+      await seedMinable(h)
       const db = await h.db()
       const weak = {
         skills: [
           { ...proposal.skills[0]!, slug: 'weak-one', confidence: 0.2 },
-          { ...proposal.skills[0]!, slug: 'thin-one', evidence: ['S0'] },
+          // Not "thin evidence" any more — one session is fine if the job
+          // plainly repeats. What fails is the miner judging that it does not.
+          { ...proposal.skills[0]!, slug: 'one-off', evidence: ['S0'], reusable: false },
         ],
       }
       const st = await mineSkills(db, layout, defaults(), new MockLlm([weak]))
@@ -230,6 +324,64 @@ describe('mining', () => {
       // They are recorded as `weak` rather than discarded, so an audit can
       // show what was mined and why it did not earn a place.
       expect(st.weak).toBeGreaterThan(0)
+      h.close()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('honours `mine = "off"` without disabling the ledgers', async () => {
+    const { layout, h, cleanup } = await store()
+    try {
+      await seedMinable(h)
+      const db = await h.db()
+      const cfg = defaults()
+      cfg.skills.mine = 'off'
+      const llm = new MockLlm([proposal])
+      const st = await mineSkills(db, layout, cfg, llm)
+      expect(st.proposed).toBe(0)
+      expect(llm.calls).toBe(0)
+      // Distinct from `enabled = false`: mining is a quality-tier call per
+      // cluster with uncertain precision, while the ledgers are assembled by
+      // code from claims already extracted and cost nothing.
+      expect(st.logLine).toContain('ledgers still build')
+      h.close()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('mines only the named subjects under `mine = "targeted"`', async () => {
+    const { layout, h, cleanup } = await store()
+    try {
+      await seedMinable(h)
+      const db = await h.db()
+      const cfg = defaults()
+      cfg.skills.mine = 'targeted'
+      cfg.skills.find = ['cutting a release']
+      const llm = new MockLlm([proposal])
+      expect((await mineSkills(db, layout, cfg, llm)).proposed).toBe(0)
+      expect(llm.calls).toBe(0)
+
+      // The target is a short phrase; the cluster subject is longer and more
+      // specific, so matching is containment rather than similarity.
+      cfg.skills.find = ['flaky vitest']
+      expect((await mineSkills(db, layout, cfg, llm)).proposed).toBe(1)
+      h.close()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('says so rather than silently mining nothing when targets are unset', async () => {
+    const { layout, h, cleanup } = await store()
+    try {
+      await seedMinable(h)
+      const db = await h.db()
+      const cfg = defaults()
+      cfg.skills.mine = 'targeted'
+      const st = await mineSkills(db, layout, cfg, new MockLlm([proposal]))
+      expect(st.logLine).toContain('[skills] find')
       h.close()
     } finally {
       await cleanup()
@@ -257,7 +409,7 @@ describe('installing', () => {
   async function withSkill() {
     const t = await tempStore()
     const h = new Hoppr({ layout: new Layout(t.layout.root), config: defaults(), sources: [] })
-    await seedSessions(h, [flakyTestSession('a'), flakyTestSession('b'), flakyTestSession('c')])
+    await seedMinable(h)
     const db = await h.db()
     await mineSkills(
       db,
@@ -273,6 +425,7 @@ describe('installing', () => {
                 'Diagnose intermittently failing vitest suites. Use when a test passes alone but fails in a full run.',
               body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n\n## Pitfalls seen in practice\n- fake timers leak across files',
               evidence: ['S0', 'S1', 'S2'],
+              reusable: true,
               confidence: 0.9,
             },
           ],

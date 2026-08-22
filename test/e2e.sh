@@ -151,7 +151,11 @@ check "hoppr_list exposes every hoppr to an agent" "$TOOLS" "True"
 
 echo "── daemon (one process, all hoppers) ──"
 HD=("node" "$ROOT/dist/cli.mjs")
-"${HD[@]}" init --no-daemon --global --name dtest --from manual >/dev/null 2>&1
+mkdir -p "$(dirname "$STORE")/dtest-src"
+echo "seed note" > "$(dirname "$STORE")/dtest-src/seed.md"
+# A short debounce, or the check would have to sleep past the 20s default.
+"${HD[@]}" init --no-daemon --global --name dtest --from "dir:$(dirname "$STORE")/dtest-src" >/dev/null 2>&1
+printf '\n[intake]\ndebounce_ms = 1000\n' >> "$HOPPR_HOME/dtest/hoppr.toml"
 "${HD[@]}" daemon start >/dev/null 2>&1
 sleep 4
 "${HD[@]}" daemon status 2>/dev/null | grep -q running && ok "daemon starts" || bad "daemon did not start"
@@ -165,9 +169,15 @@ check "exactly one daemon process for all hoppers" "$PROCS" "1"
 HZ=$(python3 -c "import json;print(json.load(open('$HOPPR_HOME/daemon.json'))['port'])" 2>/dev/null)
 MANAGED=$(curl -s "http://127.0.0.1:$HZ/healthz" | jq_ 'print(len(d["hoppers"])>=2)')
 check "one daemon manages every hoppr" "$MANAGED" "True"
-echo "A note dropped in the inbox" > "$HOPPR_HOME/dtest/inbox/dropped.md"
-sleep 4
-[ -f "$HOPPR_HOME/dtest/inbox/dropped.md" ] && bad "inbox not consumed" || ok "inbox watcher consumed the drop"
+# The inbox drop-directory was removed; nothing under src/ mentions it any
+# more. The check that watched it wrote to a path that no longer exists, so the
+# write failed, the file was absent, and "absent" was read as "consumed" — a
+# test that passed *because* its setup broke. Replaced with the watcher
+# behaviour that does still exist: a file appearing in the source folder.
+echo "A note dropped in the folder" > "$(dirname "$STORE")/dtest-src/dropped.md"
+sleep 6
+FOUND=$("${HD[@]}" -H dtest --json search "dropped in the folder" 2>/dev/null | jq_ 'print(len(d["data"]))' || echo 0)
+[ "$FOUND" != "0" ] && ok "daemon indexed a file added to the folder" || bad "watcher did not pick up a new file"
 "${HD[@]}" daemon stop >/dev/null 2>&1
 "${HD[@]}" daemon status 2>/dev/null | grep -q "not running" && ok "daemon stops cleanly" || bad "daemon did not stop"
 
