@@ -4,7 +4,7 @@ import { basename, join } from 'node:path'
 import { glob } from 'tinyglobby'
 import { expandHome } from '../config/load.ts'
 import { contentHash } from '../core/hash.ts'
-import { blockText, renderSession, summarizeToolInput, type Turn } from './render.ts'
+import { blockText, renderSession, summarizeToolInput, type ToolCall, type Turn } from './render.ts'
 import { parseLine, tailLines } from './tail.ts'
 import type {
   Connector,
@@ -77,6 +77,8 @@ export const claudeCode: Connector = {
     const minTurns = Number(ctx.config.min_turns ?? 2)
 
     const turns: Turn[] = []
+
+    const toolCalls = new Map<string, ToolCall>()
     let sessionId: string | undefined
     let cwd: string | undefined
     let branch: string | undefined
@@ -131,7 +133,12 @@ export const claudeCode: Connector = {
       } else if (o.type === 'assistant' && o.message) {
         const { text, tools } = blockText(o.message.content)
         if (text.trim()) turns.push({ role: 'assistant', text })
-        for (const t of tools) turns.push({ role: 'tool', tool: t.name, text: t.input })
+        for (const t of tools) {
+          turns.push({ role: 'tool', tool: t.name, text: t.input })
+          // Kept by id so the trajectory renderer can put the name back on a
+          // record that only carries the result.
+          if (t.id) toolCalls.set(t.id, t)
+        }
       }
     }
 
@@ -154,6 +161,7 @@ export const claudeCode: Connector = {
       },
       turns,
       { maxChars, maxToolResultChars: toolCap },
+      toolCalls,
     )
 
     const hash = contentHash(body)

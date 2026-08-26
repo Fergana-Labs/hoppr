@@ -54,8 +54,7 @@ const LEAD_CHARS = 1200
  * bare `→ Skill` records that a skill was used and not which one, leaving the
  * only question worth asking unanswerable.
  *
- * The slug must appear as a whole word: `deploy` must not match `deploy-hoppr`,
- * or one skill collects another's verdicts.
+ * Only the slug the call NAMES counts — see `invokedSlug`.
  */
 export function findInvocations(
   text: string,
@@ -63,18 +62,31 @@ export function findInvocations(
 ): Array<{ slug: string; at: number }> {
   const hits: Array<{ slug: string; at: number }> = []
   for (const m of text.matchAll(/^→\s+Skill:?\s*(.*)$/gim)) {
-    const arg = m[1] ?? ''
-    for (const slug of slugs) {
-      if (new RegExp(`(^|[^\\w-])${escapeRe(slug)}([^\\w-]|$)`).test(arg)) {
-        hits.push({ slug, at: (m.index ?? 0) + m[0].length })
-      }
-    }
+    const named = invokedSlug(m[1] ?? '')
+    if (!named) continue
+    const slug = slugs.find((s) => s === named)
+    if (slug) hits.push({ slug, at: (m.index ?? 0) + m[0].length })
   }
   return hits
 }
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * The skill NAMED by the call, not any slug that appears somewhere in it.
+ *
+ * The rendered input is `{"skill":"browse","args":"…"}` and `args` is free text
+ * a person wrote. Scanning the whole blob for known slugs meant a call that
+ * merely mentioned another skill — "follow the deploy-hoppr steps first" —
+ * credited that skill with this call's outcome. A skill can then be archived
+ * for failures in sessions where it was never actually loaded.
+ *
+ * Falls back to the bare argument for harnesses that render the name alone
+ * rather than a JSON object.
+ */
+export function invokedSlug(arg: string): string {
+  const field = /"(?:skill|command|name)"\s*:\s*"([^"]+)"/.exec(arg)
+  if (field?.[1]) return field[1].trim()
+  const bare = arg.trim()
+  return /^[\w][\w./-]*$/.test(bare) ? bare : ''
 }
 
 /** The work that followed an invocation, with enough lead-in to see the ask. */

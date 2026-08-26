@@ -74,6 +74,8 @@ export function truncateMiddle(s: string, max: number): string {
 
 /** Content blocks come as a string or an array of typed blocks; flatten both. */
 export interface ToolCall {
+  /** The harness's own id for the call, used to rejoin names to trajectory. */
+  id: string
   name: string
   /** A short rendering of the call's input — capped, never the whole payload. */
   input: string
@@ -100,7 +102,11 @@ export function blockText(content: unknown): { text: string; tools: ToolCall[] }
     const block = b as Record<string, unknown>
     if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
     else if (block.type === 'tool_use' && typeof block.name === 'string') {
-      tools.push({ name: block.name, input: summarizeToolInput(block.input, 160) })
+      tools.push({
+        id: typeof block.id === 'string' ? block.id : '',
+        name: block.name,
+        input: summarizeToolInput(block.input, 160),
+      })
     } else if (block.type === 'thinking') continue
   }
   return { text: parts.join('\n'), tools }
@@ -127,13 +133,23 @@ export async function renderSession(
   fallbackMeta: Record<string, string | number | undefined>,
   fallbackTurns: Turn[],
   o: RenderOptions,
+  /**
+   * The tool calls the connector saw, by the harness's own id.
+   *
+   * The trajectory normalizer keeps tool RESULTS and drops the calls entirely —
+   * its tool records carry `tool_call_id`, `content` and `ok`, and no name. So
+   * every tool line rendered as a bare `→ tool`, which loses which tool ran and
+   * what it was asked to do. The connector parsed all of that on the way past;
+   * this hands it back so the two can be rejoined.
+   */
+  toolCalls?: Map<string, ToolCall>,
 ): Promise<{
   body: string
   via: 'trajectory' | 'builtin'
   structured?: { format: string; content: string }
 }> {
   const { toTrajectory } = await import('./trajectory.ts')
-  const t = await toTrajectory(source, transcript)
+  const t = await toTrajectory(source, transcript, toolCalls)
   if (t && t.turns.length > 0) {
     return {
       body: renderTranscript({ ...fallbackMeta, ...t.meta, format: 'trajectory-v1' }, t.turns, o),

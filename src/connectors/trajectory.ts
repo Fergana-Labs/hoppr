@@ -1,4 +1,4 @@
-import type { Turn } from './render.ts'
+import type { ToolCall, Turn } from './render.ts'
 
 /**
  * Normalize a native transcript into Letta's `trajectory` format.
@@ -58,6 +58,7 @@ interface Rec {
 export async function toTrajectory(
   source: string,
   transcript: string,
+  toolCalls?: Map<string, ToolCall>,
 ): Promise<TrajectoryResult | undefined> {
   const src = TRAJECTORY_SOURCES[source]
   if (!src) return undefined
@@ -101,7 +102,17 @@ export async function toTrajectory(
       // which is exactly the material a mined skill's pitfalls come from.
       turns.push({ role: 'assistant', text: r.role === 'reasoning' ? `(thinking) ${text}` : text })
     } else if (r.role === 'tool') {
-      turns.push({ role: 'tool', tool: String(r.toolName ?? 'tool'), text })
+      // The normalizer keeps the RESULT and drops the call, so the name has to
+      // come back from the connector's own parse, joined on the harness's id.
+      // Without this every tool line renders as a bare `→ tool`: no name, no
+      // arguments, and no way to tell which skill a session actually loaded.
+      const call = toolCalls?.get(String((r as { tool_call_id?: string }).tool_call_id ?? ''))
+      if (call) {
+        turns.push({ role: 'tool', tool: call.name, text: call.input })
+        if (text) turns.push({ role: 'tool', tool: 'result', text })
+      } else {
+        turns.push({ role: 'tool', tool: String(r.toolName ?? 'tool'), text })
+      }
     }
   }
 

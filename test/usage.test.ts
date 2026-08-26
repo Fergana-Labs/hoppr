@@ -3,7 +3,12 @@ import { defaults } from '../src/config/schema.ts'
 import { Hoppr } from '../src/core/hoppr.ts'
 import type { JsonOptions, LlmProvider } from '../src/llm/provider.ts'
 import { outcomeHistory, reliability } from '../src/organize/reliability.ts'
-import { findInvocations, judgeSkillUsage, windowAround } from '../src/organize/usage.ts'
+import {
+  findInvocations,
+  invokedSlug,
+  judgeSkillUsage,
+  windowAround,
+} from '../src/organize/usage.ts'
 import { Layout } from '../src/store/layout.ts'
 import { tempStore } from './helpers.ts'
 
@@ -76,7 +81,7 @@ describe('finding an invocation', () => {
     // The connector captures a tool call's input for exactly this. A bare
     // `→ Skill` records that a skill ran and not which, which leaves the only
     // question worth asking of a shipped skill unanswerable.
-    const hits = findInvocations(transcript(['{"command":"cut-release"}']), ['cut-release'])
+    const hits = findInvocations(transcript(['{"skill":"cut-release"}']), ['cut-release'])
     expect(hits.map((x) => x.slug)).toEqual(['cut-release'])
   })
 
@@ -86,6 +91,22 @@ describe('finding an invocation', () => {
       'deploy-hoppr',
     ])
     expect(hits.map((x) => x.slug)).toEqual(['deploy-hoppr'])
+  })
+
+  it('credits only the skill the call NAMES, not one its args mention', () => {
+    // The rendered input is `{"skill":"browse","args":"…"}` and `args` is free
+    // text somebody wrote. Scanning the whole blob meant a call that merely
+    // mentioned another skill credited it with this call's outcome — enough to
+    // archive a skill for failures in sessions it was never loaded in.
+    const line = '→ Skill: {"skill":"browse","args":"follow the deploy-hoppr steps first"}'
+    expect(findInvocations(line, ['browse', 'deploy-hoppr']).map((x) => x.slug)).toEqual(['browse'])
+  })
+
+  it('reads the bare form some harnesses render', () => {
+    expect(invokedSlug('cut-release')).toBe('cut-release')
+    expect(invokedSlug('{"skill":"cut-release","args":"go"}')).toBe('cut-release')
+    // Free prose is not a skill name.
+    expect(invokedSlug('please run the release process')).toBe('')
   })
 
   it('ignores a session that never loaded one', () => {
@@ -105,7 +126,7 @@ describe('judging a shipped skill', () => {
   it('records a real outcome, not a correction', async () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       const st = await judgeSkillUsage(db, layout, defaults(), llm)
       expect(st.invocations).toBe(1)
@@ -122,7 +143,7 @@ describe('judging a shipped skill', () => {
   it('counts a failure against the skill', async () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       llm.succeeded = false
       await judgeSkillUsage(db, layout, defaults(), llm)
@@ -138,7 +159,7 @@ describe('judging a shipped skill', () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
       for (const id of ['S1', 'S2', 'S3']) {
-        await seed(h, id, transcript(['{"command":"cut-release"}']))
+        await seed(h, id, transcript(['{"skill":"cut-release"}']))
       }
       const llm = new Judge()
       llm.succeeded = false
@@ -177,7 +198,7 @@ describe('judging a shipped skill', () => {
   it('reads each session once, ever', async () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       await judgeSkillUsage(db, layout, defaults(), llm)
       await judgeSkillUsage(db, layout, defaults(), llm)
@@ -191,7 +212,7 @@ describe('judging a shipped skill', () => {
   it('does not count against a skill when the judge cannot run', async () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       llm.throws = true
       await judgeSkillUsage(db, layout, defaults(), llm)
@@ -208,7 +229,7 @@ describe('judging a shipped skill', () => {
   it('leaves sessions unread until something has actually shipped', async () => {
     const { layout, h, db, cleanup } = await store([])
     try {
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       const st = await judgeSkillUsage(db, layout, defaults(), llm)
       expect(llm.calls).toBe(0)
@@ -228,7 +249,7 @@ describe('judging a shipped skill', () => {
     const { layout, h, db, cleanup } = await store(['cut-release'])
     try {
       db.prepare("UPDATE skills SET state = 'proposed' WHERE slug = 'cut-release'").run()
-      await seed(h, 'S1', transcript(['{"command":"cut-release"}']))
+      await seed(h, 'S1', transcript(['{"skill":"cut-release"}']))
       const llm = new Judge()
       await judgeSkillUsage(db, layout, defaults(), llm)
       // It has never been in anyone's context, so a session cannot contain a
@@ -238,5 +259,25 @@ describe('judging a shipped skill', () => {
     } finally {
       await cleanup()
     }
+  })
+})
+
+describe('the render keeps what the judge needs', () => {
+  it('puts tool names back on a trajectory-rendered session', async () => {
+    const { renderSession } = await import('../src/connectors/render.ts')
+    const turns = [
+      { role: 'user' as const, text: 'ship it' },
+      { role: 'tool' as const, tool: 'Skill', text: '{"skill":"cut-release"}' },
+    ]
+    const calls = new Map([
+      ['toolu_1', { id: 'toolu_1', name: 'Skill', input: '{"skill":"cut-release"}' }],
+    ])
+    // The trajectory normalizer keeps tool RESULTS and drops the calls — its
+    // records carry tool_call_id, content and ok, and no name. Every tool line
+    // rendered as a bare `→ tool`, which made every invocation unfindable and
+    // silently turned the usage judge into a no-op on real sessions.
+    const r = await renderSession('unknown-harness', '', {}, turns, { maxChars: 4000 }, calls)
+    expect(r.body).toContain('→ Skill')
+    expect(findInvocations(r.body, ['cut-release']).map((x) => x.slug)).toEqual(['cut-release'])
   })
 })
