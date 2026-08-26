@@ -131,7 +131,7 @@ export const claudeCode: Connector = {
       } else if (o.type === 'assistant' && o.message) {
         const { text, tools } = blockText(o.message.content)
         if (text.trim()) turns.push({ role: 'assistant', text })
-        for (const t of tools) turns.push({ role: 'tool', tool: t, text: '' })
+        for (const t of tools) turns.push({ role: 'tool', tool: t.name, text: t.input })
       }
     }
 

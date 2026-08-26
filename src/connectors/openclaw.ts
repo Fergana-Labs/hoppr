@@ -96,7 +96,7 @@ export const openclaw: Connector = {
           } else if (text.trim()) {
             turns.push({ role: 'assistant', text })
           }
-          for (const t of tools) turns.push({ role: 'tool', tool: t, text: '' })
+          for (const t of tools) turns.push({ role: 'tool', tool: t.name, text: t.input })
           break
         }
         case 'tool_call':

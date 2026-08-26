@@ -270,10 +270,10 @@ hoppr skills install debug-flaky-vitest
 hoppr skills mark debug-flaky-vitest --wrong   # it was stale; hoppr counts that
 ```
 
-A skill that keeps needing correction stops being dispatched. hoppr has no benchmark, so
-what it counts is how often a human had to intervene — rejections, hand-edits, uninstalls,
-and `mark`. That is a correction rate rather than a success rate, and archiving a skill
-removes it from the dispatcher without deleting anything.
+A skill that stops working stops being dispatched. When a later session loads an installed
+skill, hoppr judges the work that followed — did the task actually come out right — and a
+skill that keeps not landing is archived out of the dispatcher without being deleted.
+Rejections, hand-edits and `mark` count too.
 
 Only quotes from you count toward the three ledgers. A transcript also contains assistant
 prose, tool output, and any file the agent read, all of which read like confident claims

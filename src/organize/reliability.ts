@@ -8,18 +8,29 @@ import type { Db } from '../db/driver.ts'
  * correction or rejection decreases η". hoppr has no benchmark and no scalar
  * reward, so it cannot observe whether a skill made a task go better.
  *
- * What it CAN observe is whether a human had to step in. That makes this a
- * correction rate rather than a success rate, and the distinction is not
- * pedantic: a skill nobody has touched scores well here because nothing went
- * visibly wrong, not because anything went right. Calling the field a success
- * rate would be claiming a measurement hoppr never made.
+ * Two kinds of evidence feed it. The weaker kind is a human intervening —
+ * rejecting, hand-editing, uninstalling — which is a CORRECTION signal: a skill
+ * nobody has touched looks fine because nothing went visibly wrong, not because
+ * anything went right. The stronger kind comes from `organize/usage.ts`, which
+ * finds a later session that actually loaded the skill and judges whether the
+ * work that followed came out correct. That one is about outcomes.
+ *
+ * `skills why` shows the source of every outcome, so a score built only from
+ * corrections is never mistaken for one built from use.
  *
  * Laplace smoothing is what makes it usable from the first observation. With
  * n_pass = n_trial = 0 it reads 0.5 — no opinion — rather than 0/0, and a
  * single bad outcome moves it to 0.33 rather than to 0.
  */
 export type Outcome = 'pass' | 'fail'
-export type OutcomeSource = 'accepted' | 'rejected' | 'edited' | 'uninstalled' | 'marked'
+export type OutcomeSource =
+  | 'accepted'
+  | 'rejected'
+  | 'edited'
+  | 'uninstalled'
+  | 'marked'
+  /** Judged from a later session that actually loaded the skill. */
+  | 'used'
 export type Lifecycle = 'probationary' | 'active' | 'archived'
 
 /** Default floor below which a skill stops being dispatched. `[skills] archive_below`. */

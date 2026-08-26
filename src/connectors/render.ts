@@ -73,17 +73,35 @@ export function truncateMiddle(s: string, max: number): string {
 }
 
 /** Content blocks come as a string or an array of typed blocks; flatten both. */
-export function blockText(content: unknown): { text: string; tools: string[] } {
+export interface ToolCall {
+  name: string
+  /** A short rendering of the call's input — capped, never the whole payload. */
+  input: string
+}
+
+/**
+ * Tool calls carry a snippet of their input, not just their name.
+ *
+ * `→ Skill` tells you a skill was used and not WHICH skill, which makes the
+ * one question worth asking of a shipped skill — did it help? — unanswerable
+ * from the transcript. The same lack made `→ Bash` a record that a command ran
+ * without recording the command.
+ *
+ * Capped hard: this is an identifying fragment, not the payload. The full tool
+ * RESULT is already captured separately and unbounded.
+ */
+export function blockText(content: unknown): { text: string; tools: ToolCall[] } {
   if (typeof content === 'string') return { text: content, tools: [] }
   if (!Array.isArray(content)) return { text: '', tools: [] }
   const parts: string[] = []
-  const tools: string[] = []
+  const tools: ToolCall[] = []
   for (const b of content) {
     if (!b || typeof b !== 'object') continue
     const block = b as Record<string, unknown>
     if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
-    else if (block.type === 'tool_use' && typeof block.name === 'string') tools.push(block.name)
-    else if (block.type === 'thinking') continue
+    else if (block.type === 'tool_use' && typeof block.name === 'string') {
+      tools.push({ name: block.name, input: summarizeToolInput(block.input, 160) })
+    } else if (block.type === 'thinking') continue
   }
   return { text: parts.join('\n'), tools }
 }

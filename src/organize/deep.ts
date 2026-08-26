@@ -146,7 +146,20 @@ export async function deepPass(
       notes.push(`ledger stage failed: ${(e as Error).message.slice(0, 60)}`)
     }
 
-    // 3c. Procedures, which still need the transcripts and the promotion gate.
+    // 3c. Did the skills already shipped actually help? Judged from later
+    //     sessions that loaded them, before mining adds more — a skill on its
+    //     way to being archived should not also be revised this pass.
+    try {
+      const { judgeSkillUsage } = await import('./usage.ts')
+      const used = await judgeSkillUsage(db, h.layout, h.config, llm, {
+        onProgress: opts.onProgress,
+      })
+      if (used.logLine) notes.push(used.logLine)
+    } catch (e) {
+      notes.push(`usage stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3d. Procedures, which still need the transcripts and the promotion gate.
     try {
       opts.onProgress?.('mining skills')
       const mined = await mineSkills(db, h.layout, h.config, llm, { onProgress: opts.onProgress })

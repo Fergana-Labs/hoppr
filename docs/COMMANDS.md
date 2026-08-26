@@ -444,11 +444,22 @@ revised by localized edits rather than regenerated, because an unbounded rewrite
 rules that were earned and overfits the whole skill to whatever went wrong most recently.
 
 `archive_below` is the floor for a skill's reliability, `η = (n_pass + 1)/(n_trial + 2)`.
-hoppr has no benchmark, so what it counts is how often a human had to intervene —
-rejections, hand-edits, uninstalls, and `hoppr skills mark`. That makes it a **correction
-rate, not a success rate**: a skill nobody has touched scores well because nothing went
-visibly wrong, not because anything went right. Below the floor a skill leaves
-`RESOLVER.md` and stops being dispatched; it stays on disk and stays searchable.
+Below it a skill leaves `RESOLVER.md` and stops being dispatched; it stays on disk and
+stays searchable.
+
+Two kinds of evidence feed it:
+
+- **Was it used, and did that go right?** When a later session loads an installed skill,
+  the deep pass judges the work that followed — did the task actually come out correct,
+  regardless of whether anyone sounded pleased. This needs no hook and no daemon; hoppr
+  already has the transcript.
+- **Did a human have to step in?** Rejections, hand-edits, uninstalls, and
+  `hoppr skills mark`.
+
+`hoppr skills why <slug>` shows the source of every outcome, so a score built only from
+corrections is never mistaken for one built from use. The judge is deliberately biased
+toward success — refusing a new skill costs one rediscovery, while demoting a working one
+destroys something earned.
 
 `kind = "packaged"` skills ship with hoppr and are written into every new store — they
 encode how you work before any mining has happened. `min_evidence` applies to mined
