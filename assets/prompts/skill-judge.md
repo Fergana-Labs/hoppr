@@ -24,11 +24,29 @@ So look for evidence in the transcript itself:
   is, and it is the one an agent's own summary never contains.
 - Did the work get abandoned or handed back rather than finished?
 
+## Work skipped is not work succeeded
+
+A task that came out "right" because the agent left out something it was
+required to do is a failure, not a success. This is the most common way a skill
+does damage that looks like a win: it narrows what the agent thinks the job is,
+the narrower job completes cleanly, and nothing in the transcript reads as
+wrong. Check the ask against what was delivered, not the delivery against
+itself. A required field never filled, a step in the request never attempted, a
+file the task named and nobody wrote — those are failures however clean the run
+looked.
+
+The mirror of that also counts. If the skill sent the agent through work the
+task never needed — repeated verification passes, a survey of the repository, a
+rebuild loop, a pipeline for a one-line change — the task may still have come
+out right, and that is still the skill costing more than it returned. Say so in
+`reason`; it is the difference between a skill worth keeping and one worth
+rewriting.
+
 ## What you are NOT judging
 
-You are not judging whether the skill is well written, whether the agent was
-efficient, or whether you would have done it differently. Only: did the task
-come out right.
+You are not judging whether the skill is well written or whether you would have
+done it differently. Only: did the task come out right, without work being
+skipped or invented.
 
 And you are not judging the whole session. Judge the stretch of work that
 followed this skill being loaded. Everything before it belongs to something

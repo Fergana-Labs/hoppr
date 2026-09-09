@@ -407,6 +407,18 @@ export const ConfigSchema = z.object({
        * rate. Set 0 to never archive anything automatically.
        */
       archive_below: z.number().min(0).max(1).default(0.4),
+      /**
+       * Top-1 routing precision below which `hoppr skills audit` complains.
+       *
+       * A skill nobody can reach is worse than one that does not exist: it
+       * cost tokens to mine, it costs tokens to carry, and it displaces the
+       * skill that should have matched. Precision collapses as a pool grows —
+       * 29.6% to 3.3% between five skills and a hundred — and hoppr's pool is
+       * unusually confusable because every skill comes from one person's work.
+       *
+       * 0.6 is a floor, not a target. Set 0 to stop checking.
+       */
+      routing_floor: z.number().min(0).max(1).default(0.6),
     })
     .prefault({}),
 

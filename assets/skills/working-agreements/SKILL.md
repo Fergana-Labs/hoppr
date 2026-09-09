@@ -1,9 +1,9 @@
 ---
 name: working-agreements
 description: >-
-  Standing constraints on how work gets done in this codebase — what to verify
-  before claiming done, what needs permission, what to never do. Use at the
-  start of any task that changes files, and before reporting completion.
+  Use at the start of any task that changes files, and again before reporting
+  completion — the standing constraints on how work gets done here: what to
+  verify before claiming done, what needs permission, what to never do.
 ---
 
 ## Procedure
@@ -25,6 +25,13 @@ description: >-
 - Testing against a fixture you wrote to match your implementation. The fixture
   and the code then agree with each other and with nothing else.
 - Fixing the symptom a test reports rather than the cause it points at.
+
+## Do not use when
+
+- The task is to explore, sketch, or answer a question. Nothing is being
+  claimed done, so there is nothing here to hold it to.
+- A rule below conflicts with something the person just said. They win; this
+  file is a default, not a policy.
 
 ## Maintaining this skill
 

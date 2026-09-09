@@ -29,6 +29,16 @@ export async function seedSkills(l: Layout, config: Config): Promise<string[]> {
     const body = await readAsset('skills', `${slug}/SKILL.md`).catch(() => '')
     if (!body) continue
     const r = await writeIfChanged(`${l.skills}/${slug}/SKILL.md`, body)
+    // Marked `bootstrap`, the same kind `store/bootstrap.ts` uses, because
+    // they are the same category of thing: a hypothesis shipped before there
+    // is evidence, not a finding mined from any. Without the marker they were
+    // adopted as mined procedures and then audited as ones — reported forever
+    // as failing an evidence check they can never satisfy, which is how an
+    // audit stops being read.
+    await writeIfChanged(
+      `${l.skills}/${slug}/.hoppr.json`,
+      `${JSON.stringify({ slug, managed_by: 'hoppr', kind: 'bootstrap', state: 'accepted' }, null, 2)}\n`,
+    )
     if (r !== 'unchanged') written.push(slug)
   }
   return written

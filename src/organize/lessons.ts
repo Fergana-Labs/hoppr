@@ -349,7 +349,8 @@ export function matchesTarget(subject: string, targets: string[]): boolean {
   })
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+/** Shared with `organize/corrections.ts`, which clusters failure modes the same way. */
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   let shared = 0
   for (const x of a) if (b.has(x)) shared++

@@ -61,12 +61,32 @@ export interface SkillRow {
   description: string
   path: string | null
   state: SkillState
-  /** 'procedure' for mined skills; a ledger kind for the standing ones. */
+  /** 'procedure' | 'guardrail' | 'frontdoor', or a ledger kind for the standing ones. */
   kind: string
+  /**
+   * The failure mode this skill was written to prevent, for a guardrail.
+   *
+   * Set only by `organize/guardrails.ts`, which mines FROM the mode. Nothing
+   * infers it from shared sessions — see the note on the column in
+   * `009_corrections.sql` for why that inference would be wrong.
+   */
+  prevents: string
   /** probationary | active | archived — see `organize/reliability.ts`. */
   lifecycle: string
   /** Hash of the body hoppr last wrote; a mismatch on disk is a hand-edit. */
   body_hash: string
+  /**
+   * When the replay bench last scored this, or null if it never has.
+   *
+   * Nullable rather than zero: "not yet replayed" and "replayed and prevented
+   * nothing" are different states, and collapsing them lets an unverified
+   * skill read as a verified failure or the reverse.
+   */
+  verified_at: number | null
+  /** Holdout cases where the baseline failed and this skill did not. */
+  prevents_n: number | null
+  /** Holdout cases this skill broke that the baseline handled. */
+  regress_n: number | null
   evidence_count: number
   confidence: number
 }
@@ -140,8 +160,25 @@ export async function mineSkills(
   // know well mostly re-proposes what you already do; naming the gaps is more
   // useful than being told your own habits.
   const wanted = (await resolveWants(l, cfg)).find
-  const clusters =
+  const matched =
     cfg.skills.mine === 'targeted' ? all.filter((c) => matchesTarget(c.subject, wanted)) : all
+
+  // Mine the clusters with the most working evidence first.
+  //
+  // `clusterProcedures` orders by how many sessions a subject appeared in,
+  // which treats a subject seen five times as the best candidate regardless of
+  // how those five went. Demystifying Agent Skills varies exactly this — the
+  // success/failure mix of the source trajectories, with everything else held
+  // fixed — and finds it dominates the resulting skill's quality: success-only
+  // pools far exceed the no-skill baseline while failure-only pools drop below
+  // it. Since only the top few clusters are mined per pass, this ordering
+  // decides which skills get written at all.
+  const clusters = [...matched].sort(
+    (a, b) =>
+      successRatio(b) - successRatio(a) ||
+      b.successIds.length - a.successIds.length ||
+      b.rawIds.length - a.rawIds.length,
+  )
   st.candidates = clusters.length
   if (clusters.length === 0) {
     if (cfg.skills.mine === 'targeted') {
@@ -168,6 +205,14 @@ export async function mineSkills(
   )
 
   for (const group of clusters.slice(0, 5)) {
+    // Nothing worked here, so there is no procedure to write — only a record
+    // of attempts. The gate would reject the draft anyway; skipping before the
+    // model call means not paying for it.
+    if (group.successIds.length === 0) {
+      st.weak++
+      opts.onProgress?.(`skipped '${group.subject}' — no session where it worked`)
+      continue
+    }
     const cluster = sessionsFor(db, group)
     if (cluster.length < cfg.skills.min_evidence) continue
     opts.onProgress?.(`mining '${group.subject}' from ${cluster.length} sessions`)
@@ -234,6 +279,10 @@ export async function mineSkills(
         confidence: s.confidence,
         minEvidence: cfg.skills.min_evidence,
         minConfidence: cfg.skills.min_confidence,
+        // Sessions in this cluster where the approach worked. The gate needs
+        // it because a procedure reconstructed only from transcripts that went
+        // wrong describes a wrong turn.
+        successCount: group.successIds.length,
       })
       if (!gate.pass) {
         st.weak++
@@ -402,6 +451,12 @@ async function verifyDraft(
         unsupported: ground.invented.length
           ? ground.invented.map((c) => `- \`${c}\``).join('\n')
           : '_none — every command it names was actually run_',
+        // Constants that were true where this was mined and nowhere else. An
+        // installed skill is read in every project on the machine, which makes
+        // a carried-over path the likeliest way a mined skill misfires.
+        nontransferable: ground.nonTransferable.length
+          ? ground.nonTransferable.map((c) => `- \`${c}\``).join('\n')
+          : '_none — nothing in it is specific to one machine or checkout_',
         skill: `# ${draft.name}\n\n${draft.description}\n\n${draft.body}`,
         sessions: renderSessions(cluster.filter((c) => sources.includes(c.id))),
       }),
@@ -572,6 +627,7 @@ async function reviseExisting(
     confidence: existing.confidence,
     minEvidence: cfg.skills.min_evidence,
     minConfidence: cfg.skills.min_confidence,
+    successCount: group.successIds.length,
   })
   if (!gate.pass) return reject(gate.failures[0] ?? 'failed the promotion gate')
 
@@ -747,12 +803,24 @@ export async function reconcileSkills(db: Db, l: Layout, cfg: Config): Promise<n
     if (!existsSync(path)) continue
     const { data } = parsePage(await readFile(path, 'utf8').catch(() => ''))
     const d = data as Record<string, unknown>
+    // A directory hoppr wrote leaves a marker saying what kind of thing it is.
+    // Adopting everything as `procedure` meant a shipped seed was audited as a
+    // mined one and failed an evidence check it can never satisfy.
+    const meta = JSON.parse(
+      await readFile(`${l.skills}/${entry.name}/.hoppr.json`, 'utf8').catch(() => '{}'),
+    ) as { kind?: string; prevents?: string }
     db.prepare(
       `INSERT OR IGNORE INTO skills
-         (slug, name, description, path, state, evidence_count, confidence,
+         (slug, name, description, path, state, kind, prevents, evidence_count, confidence,
           created, updated, pass_id, prompt_hash)
-       VALUES (:slug, :name, :desc, :path, 'accepted', 0, 1.0, :now, :now, 'seed', '')`,
+       VALUES (:slug, :name, :desc, :path, 'accepted', :kind, :prevents, 0, 1.0, :now, :now, 'seed', '')`,
     ).run({
+      kind: typeof meta.kind === 'string' ? meta.kind : 'procedure',
+      // A guardrail's whole identity is the failure it was mined from.
+      // Dropping it on re-adoption left the skill on disk looking intact while
+      // the bench could no longer find the cases that test its claim — and
+      // reported "broke nothing" about evidence it never looked at.
+      prevents: typeof meta.prevents === 'string' ? meta.prevents : '',
       slug: entry.name,
       name: String(d.name ?? entry.name),
       desc: String(d.description ?? '')
@@ -935,4 +1003,9 @@ export async function uninstallSkill(
   recordOutcome(db, slug, 'fail', 'uninstalled')
   setSkillState(db, slug, 'accepted')
   return { slug, target: dir, outcome: 'installed', detail: 'removed' }
+}
+
+/** Share of a cluster's sessions where the approach worked. */
+function successRatio(c: ProcedureCluster): number {
+  return c.rawIds.length === 0 ? 0 : c.successIds.length / c.rawIds.length
 }

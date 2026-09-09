@@ -60,7 +60,8 @@ curated/graph/nodes.jsonl                typed entities, one JSON object per lin
 curated/graph/edges.jsonl                cited relationships between entities
 curated/graph/seen.jsonl                 rebuildable extraction checkpoint
 
-curated/skills/<slug>/SKILL.md           procedures distilled from past sessions
+curated/skills/hoppr/SKILL.md            the front door — standing context, read first
+curated/skills/<slug>/SKILL.md           procedures and guardrails from past sessions
 curated/prompts/*.md                     the prompts driving curation — editable
 curated/outputs/lint-<date>.md           lint reports
 \`\`\`
@@ -161,9 +162,16 @@ so every cell traces back to its capture.${
 
 ## Skills
 
-\`curated/skills/<slug>/SKILL.md\` are procedures distilled from recurring
-patterns in past agent sessions — including the failures, which are the point.
-They are proposals until a human accepts them.
+\`curated/skills/<slug>/SKILL.md\` are distilled from past agent sessions —
+including the failures, which are the point. They are proposals until a human
+accepts them.
+
+\`curated/skills/hoppr/SKILL.md\` is the front door: standing context inlined,
+everything situational routed to. Read it before choosing an approach.
+
+A skill with \`kind: guardrail\` in its \`.hoppr.json\` exists to stop one
+recurring mistake, and \`prevents\` names which. \`curated/outputs/mirror-*.md\`
+is the report those come from: what keeps going wrong, ranked by what it cost.
 
 ## Tooling (optional)
 
@@ -176,7 +184,10 @@ hoppr graph                   search typed graph entities
 hoppr graph show <name>       traverse cited relationships around one entity
 hoppr get <id>                one page with its sources and links
 hoppr source <raw-id>         the original capture behind a page
-hoppr ingest "<text>"         add something new
+hoppr mirror                  what keeps going wrong, ranked by what it cost
+hoppr skills list             every skill and its state; \`show <slug>\` prints one
+hoppr skills why <slug>       what a skill was built from, quote by quote
+hoppr add <file>              copy a file into the store
 hoppr doctor                  check store health and configuration
 \`\`\`
 

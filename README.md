@@ -245,8 +245,10 @@ four kinds of skill, all in the `SKILL.md` format harnesses already load.
 
 | skill | holds | how it is made |
 |---|---|---|
+| `hoppr` | the front door — standing context inlined, everything else routed to | assembled by code |
 | `glossary` | what the nouns in your world mean and where they live | a list, built by code from your sessions |
 | `preferences` | rules and tastes, each marked MUST or PREFER | the same |
+| guardrails | one recurring failure each, and how to stop it | mined from your corrections |
 | procedures | how a recurring job gets done, and what goes wrong | mined per cluster, then verified |
 
 The two lists accumulate, assembled from the claims **by code rather than by a model**, so
@@ -264,11 +266,17 @@ generalizes is judged, not counted.
 
 ```bash
 hoppr deep
-hoppr skills review
+hoppr skills review                   # costliest proposals first
 hoppr skills why preferences          # per line: who said it, in what words, what it replaced
+hoppr skills install hoppr            # the front door — one file, read at the start of a task
 hoppr skills install debug-flaky-vitest
 hoppr skills mark debug-flaky-vitest --wrong   # it was stale; hoppr counts that
 ```
+
+Installing the front door is one action and the change shows up in the next session: it
+inlines what your words mean and how you want work done, and routes to the situational
+skills instead of inlining those. Standing context has to be known *before* the work — by
+the time an agent notices it is writing a status update it has already picked a register.
 
 A skill that stops working stops being dispatched. When a later session loads an installed
 skill, hoppr judges the work that followed — did the task actually come out right — and a
@@ -280,8 +288,94 @@ prose, tool output, and any file the agent read, all of which read like confiden
 about how things should be done; hoppr checks the quote against what you actually typed
 rather than asking the model to be careful.
 
+Before a proposal reaches you, hoppr **replays** it: recorded corrections become test
+cases, and the skill is scored on cases it was not mined from, once with it loaded and
+once without. A skill that changes nothing is inert; a skill that breaks a case the agent
+already handled is rejected outright.
+
+```bash
+hoppr skills verify run-before-reporting
+# fail  1 regression(s) — broke a case the baseline handled
+#   prevents  2/3  ignored-a-stated-preference
+#   regression 3/3 asked-what-was-readable
+```
+
+Three draws per case, because one is not stable — the same skill on the same case moved
+from `regression` to `prevents` between two runs here, and the bench retires skills. It is
+a model judging a model against a text stub, so it cannot see environment or path
+failures; a pass means "did no visible harm on recorded failures", not "verified".
+
 hoppr never auto-installs a skill. Proposals require explicit acceptance and installation,
 and rejected proposals are remembered.
+
+## What your sessions say about your agent
+
+```bash
+hoppr mirror          # read it
+hoppr mirror --mine   # and write a skill for each thing that keeps going wrong
+```
+
+Everything above hands you a queue. This is the other thing the corpus can produce, and
+the only thing in it that no repository, README or config file already contains.
+
+The deep pass reads every session a second time for **corrections** — the moments the
+agent got it wrong and you said so. A correction is not a lesson. A lesson is a standing
+claim, superseded when a newer one contradicts it. A correction is an *event*: it happened
+at a time, it cost turns, and a second occurrence is more evidence rather than a
+replacement.
+
+```
+In 340 sessions you corrected the agent 87 times, costing roughly 210 turns of rework.
+
+  1. Reported the fix as working without running anything
+     claimed-done-without-running · ~40 turns across 14 sessions · rework
+
+     You said:
+     > did you actually run the tests or are you just guessing again
+
+     The fix — run-before-reporting
+     hoppr skills install run-before-reporting
+```
+
+Ranked by cost, not by count. A count answers "what happens most", which you can usually
+guess. Cost answers "what is this costing me", which you cannot.
+
+Cost is turns burned weighted by severity, because turns alone measure how long you argued
+rather than what the mistake cost. The most expensive correction found on a real corpus —
+an agent indexing 1Password credentials off the filesystem — took one turn to stop. Both
+the weights and the turn estimates are named as estimates wherever they are shown.
+
+Failure modes converge instead of accumulating: each batch is shown the modes already in
+use and reuses one before coining a new one, the same way the tag vocabulary converges.
+
+`--mine` writes a **guardrail** per mode: a short skill whose only job is to stop that one
+failure, quoting your own words back in its `## What goes wrong` section. It faces the same
+promotion gate as any mined skill, and the miner answering "this is not one repeatable
+mistake" is expected. The link between a mode and its guardrail is causal by construction —
+the guardrail is mined *from* the mode, never inferred from a shared transcript.
+
+Only your own words count here, checked against what you typed. An assistant apologizing
+for itself is the most quotable prose in any transcript, and without that check the top of
+every report becomes whatever the model most likes to apologize for.
+
+## Starter skills, before anything is mined
+
+A store's first day has nothing to cluster, which is exactly when someone is deciding
+whether installing this was worth it. What *is* available on day one is the project:
+
+```bash
+cd ~/code/my-app && hoppr init
+# wrote 3 starter skills from this project: verify-before-done, where-things-live, commit-style-here
+```
+
+They are read off the directory — its verify commands, its layout, its commit history — so
+they say `npm run check`, not "verify your work". **Nothing is written that detection could
+not fill in.** A repo with no test command gets no testing skill rather than a platitude
+about testing; a pack of generally-good advice is true, unobjectionable, and useless,
+because every generic line loaded into a session displaces a specific one.
+
+They are hypotheses rather than findings and say so in their own text. They regenerate as
+the project changes, and stop the moment you edit one.
 
 ## What hoppr can read
 
@@ -365,7 +459,7 @@ hoppr init | setup | doctor
 hoppr add | sync | search | get | related
 hoppr index | curate | deep | reindex | embed | catalog
 hoppr tables | table | sql | graph
-hoppr skills | prompts | journal | undo
+hoppr skills | mirror | prompts | journal | undo
 hoppr mcp | vfs | daemon | web | browse
 ```
 

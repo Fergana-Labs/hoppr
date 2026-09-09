@@ -99,6 +99,46 @@ export interface GroundingResult {
   invented: string[]
   /** How many of the skill's commands were observed in the evidence. */
   grounded: number
+  /**
+   * Constants that will not survive being read anywhere but where they were
+   * mined — absolute paths, a machine's home directory, a localhost port.
+   */
+  nonTransferable: string[]
+}
+
+/**
+ * Values that are true of one machine or one checkout, not of the job.
+ *
+ * hoppr mines a person's whole history and installs the result into
+ * `~/.claude/skills`, where it is read in every project on the machine. That
+ * makes carried-over constants the likeliest way a mined skill does damage,
+ * and the measurement agrees: Artifact Misplacement (24 cases) and Environment
+ * Mismatch (13) together account for 37 of 125 skill-induced functional
+ * failures — a skill sending the agent to write in the wrong place, or against
+ * a package state the current environment does not have.
+ *
+ * SkillRevise applies the same filter when it promotes a repair into reusable
+ * memory: candidates must be transferable, and task-specific constants, output
+ * paths and environment-specific shortcuts are stripped before storage.
+ *
+ * Reported, not stripped. Rewriting someone's skill to remove a path could
+ * remove the only thing that made it work, and this feeds the same verifier
+ * that weighs the invented-command signal.
+ */
+const NON_TRANSFERABLE: Array<{ re: RegExp; what: string }> = [
+  { re: /\/(?:Users|home)\/[A-Za-z0-9._-]+(?:\/[^\s`'")\]]*)?/g, what: 'a home directory' },
+  { re: /\b[A-Za-z]:\\[^\s`'")\]]+/g, what: 'a Windows path' },
+  { re: /(?:^|[\s`'("])\/(?:opt|srv|var|etc|tmp)\/[^\s`'")\]]+/g, what: 'an absolute path' },
+  { re: /\bhttps?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?[^\s`'")\]]*/g, what: 'a local URL' },
+]
+
+/** Machine- or checkout-specific constants a skill carries. */
+export function nonTransferableIn(text: string): string[] {
+  const out = new Set<string>()
+  for (const { re } of NON_TRANSFERABLE) {
+    for (const m of text.matchAll(re)) out.add(m[0].trim().replace(/^[`'("]/, ''))
+  }
+  return [...out].sort()
 }
 
 /**
@@ -109,11 +149,12 @@ export interface GroundingResult {
  * echo, so this cannot be satisfied by a citation the model invented.
  */
 export function checkGrounding(body: string, evidence: string): GroundingResult {
+  const nonTransferable = nonTransferableIn(body)
   const claimed = commandsIn(body)
   // A skill with no commands is not suspicious — plenty of real procedures are
   // judgement rather than shell.
-  if (claimed.size === 0) return { invented: [], grounded: 0 }
+  if (claimed.size === 0) return { invented: [], grounded: 0, nonTransferable }
   const observed = commandsIn(evidence)
   const invented = [...claimed].filter((c) => !observed.has(c)).sort()
-  return { invented, grounded: claimed.size - invented.length }
+  return { invented, grounded: claimed.size - invented.length, nonTransferable }
 }

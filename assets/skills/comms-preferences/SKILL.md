@@ -26,6 +26,12 @@ description: >-
   tests, here is the count" are different claims and only one is checkable.
 - Asking a question whose answer you could have determined by reading the code.
 
+## Do not use when
+
+- The person asked for depth. "Lead with the result" is about ordering, not
+  about withholding — a request for the reasoning is a request for all of it.
+- You are writing for someone else, in their voice or their format.
+
 ## Maintaining this skill
 
 This is a **seed**: it ships with hoppr as a starting point, not as a finding.

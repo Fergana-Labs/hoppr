@@ -40,6 +40,22 @@ the supporting sessions:
 
 {{unsupported}}
 
+## Constants that will not transfer
+
+An accepted skill is installed into the harness's global skills directory and
+read in every project on this machine — not only the one it was mined from. A
+home directory, an absolute path, or a local URL baked into the procedure was
+true where it was observed and is wrong everywhere else. These are the two
+largest execution-surface failure classes for real skills: an agent writing the
+required artifact somewhere the task never named, or acting against an
+environment state the current project does not have.
+
+{{nontransferable}}
+
+If the procedure DEPENDS on one of these to make sense, it is not supported:
+say so, and name which. If it merely mentions one in passing — an example, a
+quoted line of output — that is not a reason to refuse it.
+
 That list is a signal, not a verdict. A command can be missing because the
 transcript was truncated, or present as prose rather than a shell line. But a
 skill instructing a future agent to run something that was never once run is the

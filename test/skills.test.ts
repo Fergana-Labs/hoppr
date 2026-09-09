@@ -97,19 +97,22 @@ async function seedLessons(
     statement: string
     kind?: string
     observed?: number
+    /** Did the approach work in that session? Defaults to the ordinary case. */
+    outcome?: string
   }>,
 ) {
   const db = await h.db()
   rows.forEach((r, i) => {
     db.prepare(
-      `INSERT INTO lessons(id,raw_id,kind,subject,statement,quote,confidence,observed,created)
-       VALUES (:id,:raw,:kind,:subj,:stmt,'because I said so',0.9,:obs,:now)`,
+      `INSERT INTO lessons(id,raw_id,kind,subject,statement,quote,outcome,confidence,observed,created)
+       VALUES (:id,:raw,:kind,:subj,:stmt,'because I said so',:out,0.9,:obs,:now)`,
     ).run({
       id: `L${i}-${r.raw}-${r.subject}`.slice(0, 24),
       raw: r.raw,
       kind: r.kind ?? 'procedure',
       subj: r.subject,
       stmt: r.statement,
+      out: r.outcome ?? 'worked',
       obs: r.observed ?? Date.now(),
       now: Date.now(),
     })
@@ -204,7 +207,7 @@ describe('mining', () => {
         name: 'debug-flaky-vitest',
         description:
           'Diagnose intermittently failing vitest suites. Use when tests pass alone but fail in a full run, or when CI is red and local is green.',
-        body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n3. Add vi.useRealTimers() to afterEach\n\n## Pitfalls seen in practice\n- fake timers leak into the next file, so the failure surfaces far from its cause',
+        body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n3. Add vi.useRealTimers() to afterEach\n\n## Pitfalls seen in practice\n- fake timers leak into the next file, so the failure surfaces far from its cause\n\n## Do not use when\n- the failure is deterministic — that is an ordinary bug, not flakiness',
         evidence: ['S0', 'S1', 'S2'],
         reusable: true,
         confidence: 0.85,
@@ -423,7 +426,7 @@ describe('installing', () => {
               name: 'debug-flaky-vitest',
               description:
                 'Diagnose intermittently failing vitest suites. Use when a test passes alone but fails in a full run.',
-              body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n\n## Pitfalls seen in practice\n- fake timers leak across files',
+              body: '## Procedure\n1. Reproduce with `vitest run --sequence.shuffle`\n2. Bisect to the first offending file\n\n## Pitfalls seen in practice\n- fake timers leak across files\n\n## Do not use when\n- the failure is deterministic — that is an ordinary bug, not flakiness',
               evidence: ['S0', 'S1', 'S2'],
               reusable: true,
               confidence: 0.9,

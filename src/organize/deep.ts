@@ -4,6 +4,7 @@ import type { Hoppr } from '../core/hoppr.ts'
 import { isoDate } from '../core/ids.ts'
 import { buildsPage, curationFor } from '../core/profiles.ts'
 import { docId, upsertDoc } from '../db/docs.ts'
+import type { Db } from '../db/driver.ts'
 import { recordCall, withinBudget } from '../llm/index.ts'
 import { writeIfChanged } from '../store/atomic.ts'
 import { clip, loadPrompt, render } from '../store/prompts.ts'
@@ -57,6 +58,13 @@ export interface DeepStats {
   skillsProposed: number
   /** Typed claims extracted from sessions this pass. */
   lessons: number
+  /** Moments the agent got it wrong and the person said so. */
+  corrections: number
+  /** Skills written to prevent a recurring failure. */
+  guardrails: number
+  /** Proposals that survived a replay against recorded failures. */
+  benchPassed: number
+  benchFailed: number
   lintFindings: number
   logLine: string
 }
@@ -93,6 +101,10 @@ export async function deepPass(
     concepts: 0,
     skillsProposed: 0,
     lessons: 0,
+    corrections: 0,
+    guardrails: 0,
+    benchPassed: 0,
+    benchFailed: 0,
     lintFindings: 0,
     logLine: '',
   }
@@ -136,6 +148,21 @@ export async function deepPass(
       notes.push(`lesson stage failed: ${(e as Error).message.slice(0, 60)}`)
     }
 
+    // 3a2. And read the same sessions for what went WRONG. Separate from the
+    //      lessons pass because it is a different question with a different
+    //      shape of answer: a lesson is a standing claim superseded by a newer
+    //      one, a correction is an event whose recurrence is the whole point.
+    try {
+      const { extractCorrections } = await import('./corrections.ts')
+      const cx = await extractCorrections(db, h.layout, h.config, llm, {
+        onProgress: opts.onProgress,
+      })
+      st.corrections = cx.corrections
+      if (cx.logLine) notes.push(cx.logLine)
+    } catch (e) {
+      notes.push(`correction stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
     // 3b. The standing ledgers, assembled by code from those claims. No model
     //     call, so this is cheap enough to run every pass and its diff is
     //     exactly the set of things that changed.
@@ -167,6 +194,67 @@ export async function deepPass(
       if (mined.proposed) notes.push(`${mined.proposed} skill proposals`)
     } catch (e) {
       notes.push(`skill stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3e. A guardrail for each failure mode that is actually costing something.
+    //     Bounded per pass rather than run over every mode: writing one is a
+    //     quality-tier call, and the modes below the top few are, by the
+    //     ranking's own measure, not worth the money yet.
+    try {
+      const { failureModes } = await import('./corrections.ts')
+      const { mineGuardrails } = await import('./guardrails.ts')
+      const modes = failureModes(db).filter((m) => !hasGuardrail(db, m.mode))
+      if (modes.length > 0) {
+        const g = await mineGuardrails(db, h.layout, h.config, llm, modes.slice(0, 3), {
+          onProgress: opts.onProgress,
+        })
+        st.guardrails = g.stats.proposed
+        if (g.stats.logLine) notes.push(g.stats.logLine)
+      }
+    } catch (e) {
+      notes.push(`guardrail stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3e2. Score what was proposed against recorded failures.
+    //
+    //      This is the stage the pipeline never had. Everything above judges a
+    //      skill as text — the gate reads its prose, the refuter re-reads its
+    //      evidence — and a one-shot authored skill shipped on that basis is
+    //      frequently worse than no skill at all. Cases are cut from
+    //      corrections by string arithmetic, so building them is free; only
+    //      the replay costs anything, and it is bounded per pass.
+    try {
+      const { buildCases } = await import('./cases.ts')
+      const built = await buildCases(db, { config: h.config })
+      if (built.logLine) notes.push(built.logLine)
+
+      // Deliberately one skill per pass.
+      //
+      // A single skill costs cases × samples × 3 quality-tier calls, so
+      // benching three of them would roughly double the whole nightly pass to
+      // score work that is not going anywhere. One per night clears a backlog
+      // over a week and keeps the pass's cost recognisable; `hoppr skills
+      // verify` is there for anyone who wants an answer now.
+      const { runBench } = await import('./replay.ts')
+      const bench = await runBench(db, h.layout, h.config, llm, {
+        onProgress: opts.onProgress,
+        limit: 1,
+        cases: 2,
+      })
+      st.benchPassed = bench.passed
+      st.benchFailed = bench.failed
+      if (bench.logLine) notes.push(bench.logLine)
+    } catch (e) {
+      notes.push(`bench stage failed: ${(e as Error).message.slice(0, 60)}`)
+    }
+
+    // 3f. The front door, rebuilt from whatever the pass ended up with. Last,
+    //     so it reflects this pass rather than the previous one.
+    try {
+      const { buildFrontDoor } = await import('../store/frontdoor.ts')
+      await buildFrontDoor(db, h.layout, h.config)
+    } catch (e) {
+      notes.push(`front door failed: ${(e as Error).message.slice(0, 60)}`)
     }
   }
 
@@ -561,4 +649,17 @@ async function lint(
 
   await writeIfChanged(h.layout.lintReport(day), body)
   return total
+}
+
+/**
+ * Has a guardrail already been written for this mode?
+ *
+ * Including a rejected one. Re-proposing a guardrail someone turned down, on
+ * the next pass, for a failure mode that by definition keeps recurring, is the
+ * fastest way to make the review queue feel like spam.
+ */
+function hasGuardrail(db: Db, mode: string): boolean {
+  return !!db
+    .prepare<{ slug: string }>('SELECT slug FROM skills WHERE prevents = :m LIMIT 1')
+    .get({ m: mode })
 }

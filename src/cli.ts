@@ -231,6 +231,45 @@ program
         }
       }
 
+      // Starter skills, before anything has been mined.
+      //
+      // A store's first day has nothing to cluster, so the skills half of it is
+      // empty exactly when someone is deciding whether this was worth
+      // installing. What IS available on day one is the project itself: its
+      // verify commands, its layout, its commit history. Those make skills that
+      // are specific enough to be worth loading, and detection is cheap.
+      //
+      // Nothing is written that detection did not fill in — see
+      // `store/bootstrap.ts`. A repo with no test command gets no testing
+      // skill rather than a platitude about testing.
+      try {
+        const hb = await Hoppr.open({ root })
+        try {
+          const { bootstrapSkills } = await import('./store/bootstrap.ts')
+          const { buildFrontDoor } = await import('./store/frontdoor.ts')
+          const b = await bootstrapSkills(await hb.db(), hb.layout, hb.config, process.cwd())
+          if (b.written.length > 0) {
+            await buildFrontDoor(await hb.db(), hb.layout, hb.config)
+            console.log()
+            console.log(
+              `${c.green('wrote')} ${b.written.length} starter skill${
+                b.written.length === 1 ? '' : 's'
+              } ${c.dim(`from this project: ${b.written.join(', ')}`)}`,
+            )
+            console.log(
+              `  ${c.cyan('hoppr skills install hoppr')} ${c.dim(
+                '— one file your agent reads at the start of every task',
+              )}`,
+            )
+          }
+        } finally {
+          hb.close()
+        }
+      } catch {
+        // Bootstrapping is a nicety on top of a store that already exists.
+        // Failing it must not fail `init`.
+      }
+
       // Be explicit that nothing is running yet. `hoppr daemon start` as a bare
       // suggestion reads as optional polish; the truth is that without it the
       // store only changes when you run a command.
@@ -352,7 +391,7 @@ const addCmd = (name: string) =>
       console.log(`${c.green('+')} ${c.bold(rec.title ?? rec.id)}`)
       console.log(`  ${c.dim(rec.path)}`)
     })
-addCmd('add')
+addCmd('add').alias('ingest')
 
 /** Which variable each provider authenticates with, for `doctor`. */
 const ENV_KEYS: Record<string, string> = {
@@ -1537,7 +1576,9 @@ program
 // ── deep pass ─────────────────────────────────────────────────────
 program
   .command('deep')
-  .description('run the nightly pass now: taxonomy, concepts, skills, lint')
+  .description(
+    'run the nightly pass now: taxonomy, concepts, lessons, corrections, skills, bench, lint',
+  )
   .option('--dry-run')
   .action(async (o: { dryRun?: boolean }) => {
     const h = await ctx()
@@ -1556,10 +1597,99 @@ program
       const sha = await gitmod.commit(h.layout.root, st.logLine, ['curated']).catch(() => null)
       if (sha) console.log(c.dim(`  committed ${sha.slice(0, 8)}`))
     }
-    if (st.skillsProposed) {
+    if (st.skillsProposed || st.guardrails) {
       console.log(
-        c.cyan(`  ${st.skillsProposed} skill proposals — review with \`hoppr skills review\``),
+        c.cyan(
+          `  ${st.skillsProposed + st.guardrails} skill proposals — ` +
+            'review with `hoppr skills review`',
+        ),
       )
+    }
+    if (st.corrections) {
+      console.log(c.cyan(`  ${st.corrections} corrections found — read \`hoppr mirror\``))
+    }
+  })
+
+// ── mirror ────────────────────────────────────────────────────────
+/**
+ * The report a person reads first.
+ *
+ * Everything else `hoppr skills` offers is a queue — proposals to triage,
+ * evidence to audit — which is work handed back to the person who asked for
+ * help. This is the other thing the corpus can produce and the only thing in
+ * it that no repository, README, or config file already contains: what you and
+ * your agent keep getting wrong together, in your own words, ranked by cost.
+ */
+program
+  .command('mirror')
+  .description('what your sessions say: what hoppr learned about you, and what keeps going wrong')
+  .option('--top <n>', 'failure modes to show', '6')
+  .option('--mine', 'write guardrails for any top mode that does not have one yet')
+  .action(async (o: { top?: string; mine?: boolean }) => {
+    const h = await ctx()
+    h.requireStore()
+    const db = await h.db()
+    const { failureModes } = await import('./organize/corrections.ts')
+    const { buildMirror } = await import('./organize/mirror.ts')
+    const { listSkills } = await import('./organize/skills.ts')
+
+    const top = Math.max(1, Number(o.top ?? 6) || 6)
+    const modes = failureModes(db)
+
+    // Read-only by default. A report is something people re-run, and one that
+    // silently spends quality-tier tokens each time is one they stop running.
+    let guardrails: Awaited<
+      ReturnType<typeof import('./organize/guardrails.ts').mineGuardrails>
+    >['results'] = []
+    if (o.mine) {
+      const llm = await h.llm('quality')
+      if (!llm) throw HopprError.user('writing guardrails needs an LLM provider')
+      const { mineGuardrails } = await import('./organize/guardrails.ts')
+      const known = new Set(
+        listSkills(db)
+          .map((s) => s.prevents)
+          .filter(Boolean),
+      )
+      const g = await mineGuardrails(
+        db,
+        h.layout,
+        h.config,
+        llm,
+        modes.filter((m) => !known.has(m.mode)).slice(0, top),
+        {
+          onProgress: (m) => {
+            if (!wantJson() && process.stdout.isTTY)
+              process.stdout.write(`\r  ${c.dim(m.padEnd(60))}`)
+          },
+        },
+      )
+      if (process.stdout.isTTY && !wantJson()) process.stdout.write('\r')
+      guardrails = g.results
+    }
+
+    // Guardrails already on disk count too — a report run twice should read
+    // the same both times, not lose its prescriptions on the second pass.
+    const existing = listSkills(db)
+      .filter((s) => s.kind === 'guardrail' && s.prevents)
+      .map((s) => ({
+        slug: s.slug,
+        mode: s.prevents,
+        description: s.description,
+        body: '',
+        turns: 0,
+        sessions: s.evidence_count,
+      }))
+    const merged = [...guardrails]
+    for (const e of existing) if (!merged.some((g) => g.mode === e.mode)) merged.push(e)
+
+    const mirror = await buildMirror(db, h.layout, h.config, { modes, guardrails: merged, top })
+    if (wantJson()) {
+      return printJson({ path: mirror.path, empty: mirror.empty, modes: modes.length })
+    }
+    console.log(mirror.markdown)
+    if (mirror.path) console.log(c.dim(`written to ${mirror.path}`))
+    if (!o.mine && modes.length > 0 && merged.length === 0) {
+      console.log(c.cyan('run `hoppr mirror --mine` to write a skill for each of these'))
     }
   })
 
@@ -1609,7 +1739,13 @@ skillsCmd
       const detail =
         r.kind === 'procedure'
           ? `${r.evidence_count} sessions, conf ${r.confidence.toFixed(2)}`
-          : `${r.kind} ledger, ${r.evidence_count} entries`
+          : r.kind === 'guardrail'
+            ? `guardrail for \`${r.prevents}\`, ${r.evidence_count} sessions`
+            : r.kind === 'bootstrap'
+              ? 'from this project, not from your sessions'
+              : r.kind === 'frontdoor'
+                ? `front door, ${r.evidence_count} standing lines`
+                : `${r.kind} ledger, ${r.evidence_count} entries`
       // Reliability only means something once a human has reacted to the
       // skill. Printing 0.50 next to one nobody has touched would read as a
       // measurement rather than as the absence of one.
@@ -1620,7 +1756,16 @@ skillsCmd
           : `  ${r.lifecycle === 'archived' ? c.red('archived') : c.dim(r.lifecycle)} ${c.dim(
               `η ${rel.eta.toFixed(2)} (${rel.passes}/${rel.trials})`,
             )}`
-      console.log(`${tag} ${c.bold(r.slug.padEnd(28))} ${c.dim(detail)}${health}`)
+      // Never replayed and replayed-badly are different states, so they print
+      // differently. A blank means the bench has not seen it, which is not a
+      // claim about the skill.
+      const bench =
+        r.verified_at === null
+          ? ''
+          : r.regress_n
+            ? `  ${c.red(`bench ✗ ${r.regress_n} regressed`)}`
+            : `  ${c.green(`bench ✓ ${r.prevents_n ?? 0} prevented`)}`
+      console.log(`${tag} ${c.bold(r.slug.padEnd(28))} ${c.dim(detail)}${bench}${health}`)
       console.log(`  ${c.dim(r.description.slice(0, 100))}`)
     }
   })
@@ -1658,11 +1803,28 @@ skillsCmd
 
     const rows = skillEvidence(db, slug)
     const { outcomeHistory, reliability } = await import('./organize/reliability.ts')
+    const { revisionHistory } = await import('./organize/repair.ts')
     const rel = reliability(db, slug)
     const outcomes = outcomeHistory(db, slug)
-    if (wantJson()) return printJson({ evidence: rows, reliability: rel, outcomes })
-    if (rows.length === 0 && outcomes.length === 0) {
+    // What was tried, not only what survived. A skill that reached its current
+    // form after two rejected repairs is a different object from one written
+    // right the first time, and the rejected rounds are where the reasons are.
+    const revisions = revisionHistory(db, slug)
+    if (wantJson()) return printJson({ evidence: rows, reliability: rel, outcomes, revisions })
+    if (rows.length === 0 && outcomes.length === 0 && revisions.length === 0) {
       return console.log(c.dim('no recorded evidence'))
+    }
+    if (revisions.length > 0) {
+      console.log(c.bold('repair history'))
+      for (const r of revisions.slice(0, 6)) {
+        const tag = r.outcome === 'kept' ? c.green('kept    ') : c.dim('rejected')
+        console.log(
+          `  ${tag} ${c.dim(`round ${r.round} · ${new Date(r.at).toISOString().slice(0, 10)}`)}` +
+            (r.principles ? c.dim(`  via ${r.principles}`) : ''),
+        )
+        if (r.detail) console.log(`           ${c.dim(r.detail.slice(0, 92))}`)
+      }
+      console.log()
     }
     if (outcomes.length > 0) {
       console.log(
@@ -1733,7 +1895,12 @@ skillsCmd
     const { h, db } = await skillsCtx()
     const { acceptSkill, listSkills, setSkillState } = await import('./organize/skills.ts')
     const { writeResolver } = await import('./organize/skillify.ts')
-    const pending = listSkills(db, 'proposed')
+    const { rankByRegret } = await import('./organize/corrections.ts')
+    // Costliest first. A queue ordered by the model's confidence is ordered by
+    // a number about the model; every proposal here already cleared the same
+    // gate, so those confidences sit in a narrow band and carry almost nothing.
+    // What a person wants first is the one that has already cost them the most.
+    const pending = rankByRegret(db, listSkills(db, 'proposed'), (r) => r.prevents)
     if (pending.length === 0) return console.log(c.dim('nothing to review'))
 
     // Without a terminal there is nobody to ask. Crashing on a closed stdin
@@ -1742,7 +1909,10 @@ skillsCmd
     if (!process.stdin.isTTY) {
       console.log(`${pending.length} proposal(s) awaiting review:\n`)
       for (const s of pending) {
-        console.log(`  ${c.bold(s.slug)}  ${c.dim(`${s.evidence_count} sessions`)}`)
+        const cost = s.regret
+          ? `~${s.regret.turns} turns already, ${s.regret.severity}`
+          : `${s.evidence_count} sessions`
+        console.log(`  ${c.bold(s.slug)}  ${c.dim(cost)}`)
         console.log(`    ${c.dim(s.description.slice(0, 100))}`)
       }
       console.log(
@@ -1767,6 +1937,26 @@ skillsCmd
         console.log(
           `\n${c.bold(s.slug)}  ${c.dim(`${s.evidence_count} sessions · confidence ${s.confidence.toFixed(2)}`)}`,
         )
+        // Only a guardrail has this, and only because it was mined FROM the
+        // failure mode rather than found near one. Saying what a skill has
+        // already cost is the difference between reviewing a proposal and
+        // agreeing to stop paying for something.
+        if (s.verified_at !== null) {
+          console.log(
+            s.regress_n
+              ? c.red(`  bench: broke ${s.regress_n} case(s) the agent already handled`)
+              : c.green(`  bench: prevented ${s.prevents_n ?? 0} recorded failure(s), broke none`),
+          )
+        }
+        if (s.regret) {
+          console.log(
+            c.yellow(
+              `  prevents \`${s.regret.mode}\` — ~${s.regret.turns} turns across ` +
+                `${s.regret.sessions} session${s.regret.sessions === 1 ? '' : 's'}` +
+                `${s.regret.severity === 'annoyance' ? '' : ` (${s.regret.severity})`}`,
+            ),
+          )
+        }
         console.log(c.dim(s.description))
         console.log(c.dim('─'.repeat(60)))
         console.log(
@@ -1796,6 +1986,220 @@ skillsCmd
     } finally {
       rl.close()
       await writeResolver(h.layout, listSkills(db))
+    }
+  })
+
+skillsCmd
+  .command('routing')
+  .description('can an agent find the right skill? precision as the pool grows')
+  .action(async () => {
+    const { h, db } = await skillsCtx()
+    // Fixtures come from cases, which come from corrections — so building them
+    // is free and happens here rather than being a command people must know.
+    const { buildCases } = await import('./organize/cases.ts')
+    await buildCases(db, { config: h.config })
+    const { routingBench } = await import('./organize/routing.ts')
+    const r = await routingBench(db, h.config)
+    if (wantJson()) return printJson(r)
+
+    if (r.results.length === 0) {
+      console.log(c.dim(r.logLine))
+      if (r.fixtures === 0) {
+        console.log(
+          c.dim('  fixtures come from guardrails and their corrections — `hoppr deep` first'),
+        )
+      }
+      return
+    }
+
+    console.log(
+      `${c.bold(String(r.fixtures))} fixtures over ${c.bold(String(r.pool))} skills ` +
+        c.dim('— the situation just before each recorded failure'),
+    )
+    console.log()
+    console.log(
+      c.dim(
+        r.method === 'embedding'
+          ? '  ranked by embedding similarity'
+          : '  ranked lexically — no embedder configured, so these are a LOWER BOUND',
+      ),
+    )
+    console.log(c.dim('  pool   top-1    mrr'))
+    for (const p of r.results) {
+      const pct = p.top1 * 100
+      const paint = pct >= 80 ? c.green : pct >= 60 ? c.yellow : c.red
+      console.log(
+        `  ${String(p.poolSize).padStart(4)}  ${paint(`${pct.toFixed(0)}%`.padStart(5))}  ` +
+          c.dim(p.mrr.toFixed(2)),
+      )
+    }
+
+    const floor = h.config.skills.routing_floor
+    const full = r.results.at(-1)
+    if (floor > 0 && full && full.top1 < floor) {
+      console.log()
+      console.log(
+        r.enforceable
+          ? c.red(`below the routing floor (${(floor * 100).toFixed(0)}%)`) +
+              c.dim(' — merge or narrow overlapping descriptions')
+          : c.dim(
+              `below the floor (${(floor * 100).toFixed(0)}%), but ${r.fixtures} fixtures is too few to act on — ` +
+                'one flip moves this by half',
+            ),
+      )
+    }
+    if (r.misses.length > 0) {
+      console.log()
+      console.log(c.dim('  routed elsewhere:'))
+      for (const m of r.misses.slice(0, 6)) {
+        console.log(
+          `    ${c.dim(m.mode.padEnd(30))} wanted ${c.bold(m.expect)}, got ${c.bold(m.got)} ${c.dim(`(#${m.rank})`)}`,
+        )
+      }
+    }
+    // Offline identification is not task success — the same study that
+    // measures the collapse is explicit that they come apart.
+    console.log()
+    console.log(
+      c.dim('  measures whether the right skill is REACHABLE, not whether work comes out right'),
+    )
+  })
+
+skillsCmd
+  .command('verify [slug]')
+  .description('replay recorded failures with and without the skill — the bench')
+  .option('--all', 're-score skills that have already been through it')
+  .option('--limit <n>', 'skills to score in one run', '5')
+  .option('--cases <n>', 'holdout cases per side', '4')
+  .option('--samples <n>', 'draws per case; a majority decides the verdict', '3')
+  .option('--no-ground', 'skip checking proposed moves against this project')
+  .action(
+    async (
+      slug: string | undefined,
+      o: { all?: boolean; limit?: string; cases?: string; samples?: string; ground?: boolean },
+    ) => {
+      const { h, db } = await skillsCtx()
+      const llm = await h.llm('quality')
+      if (!llm) throw HopprError.user('the bench needs an LLM provider')
+
+      // Cases are cut out of corrections by string arithmetic, so rebuilding is
+      // free and it happens on every run rather than being a separate command
+      // people have to know about.
+      const { buildCases, caseCounts } = await import('./organize/cases.ts')
+      const built = await buildCases(db)
+      const counts = caseCounts(db)
+      if (counts.holdout === 0) {
+        throw HopprError.user(
+          'no holdout cases yet — the bench replays recorded corrections.\n' +
+            '  Run `hoppr deep` (or `hoppr skills mine`) to read sessions for them first.',
+        )
+      }
+      if (built.logLine && !wantJson()) console.log(c.dim(`  ${built.logLine}`))
+
+      const tick = (m: string) => {
+        if (!wantJson() && process.stdout.isTTY) process.stdout.write(`\r  ${c.dim(m.padEnd(64))}`)
+      }
+      const perSide = Math.max(1, Number(o.cases ?? 4) || 4)
+
+      const { runBench, verifySkill } = await import('./organize/replay.ts')
+      if (slug) {
+        const { readFile } = await import('node:fs/promises')
+        const body = await readFile(h.layout.skillFile(slug), 'utf8').catch(() => '')
+        if (!body) throw HopprError.notFound(`no skill '${slug}'`)
+        const v = await verifySkill(db, h.layout, h.config, llm, slug, body, {
+          onProgress: tick,
+          ownMode: perSide,
+          offMode: perSide,
+          samples: Math.max(1, Number(o.samples ?? 3) || 3),
+          // The folder you ran it in, matching how `init` scopes its starter
+          // skills. A skill is installed globally and read in every project,
+          // so "can this move work HERE" is a question about here.
+          projectDir: o.ground === false ? undefined : process.cwd(),
+        })
+        if (process.stdout.isTTY && !wantJson()) process.stdout.write(`\r${' '.repeat(68)}\r`)
+        if (wantJson()) return printJson(v)
+        printVerdict(v)
+        return
+      }
+
+      const st = await runBench(db, h.layout, h.config, llm, {
+        onProgress: tick,
+        all: o.all,
+        limit: Math.max(1, Number(o.limit ?? 5) || 5),
+      })
+      if (process.stdout.isTTY && !wantJson()) process.stdout.write(`\r${' '.repeat(68)}\r`)
+      if (wantJson()) return printJson(st)
+      console.log(st.logLine || c.dim('nothing to score — every skill has been through the bench'))
+      if (st.scored)
+        console.log(c.dim('  `hoppr skills verify <slug>` for the case-by-case result'))
+    },
+  )
+
+skillsCmd
+  .command('repair <slug>')
+  .description('fix a skill the bench rejected, and stop as soon as it passes')
+  .option('--rounds <n>', 'revision budget', '3')
+  .option('--cases <n>', 'holdout cases per side', '4')
+  .action(async (slug: string, o: { rounds?: string; cases?: string }) => {
+    const { h, db } = await skillsCtx()
+    const llm = await h.llm('quality')
+    if (!llm) throw HopprError.user('repair needs an LLM provider')
+
+    const { buildCases, caseCounts } = await import('./organize/cases.ts')
+    await buildCases(db, { config: h.config })
+    if (caseCounts(db).holdout === 0) {
+      throw HopprError.user(
+        'no holdout cases — `hoppr deep` to read sessions for corrections first',
+      )
+    }
+
+    const tick = (m: string) => {
+      if (!wantJson() && process.stdout.isTTY) process.stdout.write(`\r  ${c.dim(m.padEnd(64))}`)
+    }
+    const { repairSkill } = await import('./organize/repair.ts')
+    const r = await repairSkill(db, h.layout, h.config, llm, slug, {
+      onProgress: tick,
+      budget: Math.max(1, Number(o.rounds ?? 3) || 3),
+      cases: Math.max(1, Number(o.cases ?? 4) || 4),
+    })
+    if (process.stdout.isTTY && !wantJson()) process.stdout.write(`\r${' '.repeat(68)}\r`)
+    if (wantJson()) return printJson(r)
+
+    const tag =
+      r.outcome === 'kept'
+        ? c.green('repaired')
+        : r.outcome === 'abandoned'
+          ? c.red('abandoned')
+          : c.yellow(r.outcome)
+    console.log(`${tag} ${c.bold(slug)} ${c.dim(`after ${r.rounds} round(s)`)}`)
+    console.log(`  ${c.dim(r.detail)}`)
+    if (r.before && r.after) {
+      console.log(
+        c.dim(
+          `  prevented ${r.before.prevents} → ${r.after.prevents}, ` +
+            `regressed ${r.before.regressions} → ${r.after.regressions}`,
+        ),
+      )
+    }
+    for (const line of r.changed) console.log(`  ${c.cyan('·')} ${c.dim(line.slice(0, 110))}`)
+  })
+
+skillsCmd
+  .command('principles')
+  .description('the repair patterns hoppr reaches for, and how often each has worked')
+  .action(async () => {
+    const { db } = await skillsCtx()
+    const { listPrinciples, seedPrinciples } = await import('./organize/principles.ts')
+    seedPrinciples(db)
+    const rows = listPrinciples(db)
+    if (wantJson()) return printJson(rows)
+    for (const p of rows) {
+      // An untried principle reads as no opinion rather than as a failure —
+      // the same Laplace shape as skill reliability, for the same reason.
+      const score = p.used === 0 ? c.dim('untried') : c.dim(`${p.worked}/${p.used} worked`)
+      console.log(`${c.bold(p.defect.padEnd(32))} ${c.dim(p.origin.padEnd(8))} ${score}`)
+      console.log(`  ${c.dim(`when: ${p.consider.slice(0, 96)}`)}`)
+      console.log(`  ${c.dim(`not:  ${p.avoid.slice(0, 96)}`)}`)
     }
   })
 
@@ -1854,7 +2258,7 @@ skillsCmd
   .action(async () => {
     const { h, db } = await skillsCtx()
     const { listSkills } = await import('./organize/skills.ts')
-    const { auditSkills } = await import('./organize/skillify.ts')
+    const { auditSkills, findOverlaps } = await import('./organize/skillify.ts')
     const { readFile } = await import('node:fs/promises')
     const rows = listSkills(db)
     const bodies = new Map<string, string>()
@@ -1865,14 +2269,57 @@ skillsCmd
       minEvidence: h.config.skills.min_evidence,
       minConfidence: h.config.skills.min_confidence,
     })
-    if (wantJson()) return printJson(audit)
-    if (audit.length === 0) return console.log(c.dim('no skills yet'))
+    // The gate scores each skill alone, which cannot see the thing that
+    // actually caps a growing set: two skills competing for one situation make
+    // each other unreachable. Confusability, not count, is what collapses
+    // retrieval, and hoppr's pool is similar by construction.
+    const overlaps = findOverlaps(rows)
+    if (wantJson()) return printJson({ audit, overlaps })
+    if (audit.length === 0 && overlaps.length === 0) {
+      // "No skills yet" was wrong whenever the store held only starter and
+      // ledger skills, which is every fresh store: `skills list` showed four
+      // and the audit claimed none existed. The gate asks questions — steps,
+      // pitfalls, a success trace — that only apply to something mined.
+      return console.log(
+        c.dim(
+          rows.length === 0
+            ? 'no skills yet — `hoppr deep` mines them'
+            : `nothing to score — the gate applies to mined skills, and these ${rows.length} were not mined`,
+        ),
+      )
+    }
     for (const a of audit) {
       const tag = a.result.pass ? c.green('pass') : c.yellow('gated')
       console.log(
         `${tag} ${c.bold(a.slug.padEnd(34))} ${c.dim(`${(a.result.score * 100).toFixed(0)}%  ${a.state}`)}`,
       )
       for (const f of a.result.failures) console.log(`     ${c.dim(`✗ ${f}`)}`)
+    }
+    // The set-level check the per-skill gate cannot make: two skills competing
+    // for one situation make each other unreachable, and the routing number is
+    // what says whether that has started to bite.
+    const { routingBench } = await import('./organize/routing.ts')
+    const routing = await routingBench(db, h.config)
+    const full = routing.results.at(-1)
+    const floor = h.config.skills.routing_floor
+    if (floor > 0 && full && routing.enforceable && full.top1 < floor) {
+      console.log(
+        `\n${c.red('routing')} top-1 ${(full.top1 * 100).toFixed(0)}% over ${full.poolSize} skills ` +
+          c.dim(`(floor ${(floor * 100).toFixed(0)}%) — \`hoppr skills routing\``),
+      )
+    }
+    if (overlaps.length > 0) {
+      console.log(
+        `\n${c.yellow('overlapping triggers')} ${c.dim('— these compete for one situation')}`,
+      )
+      for (const o of overlaps) {
+        console.log(
+          `  ${c.bold(o.a)} ${c.dim('vs')} ${c.bold(o.b)} ${c.dim(`${(o.similarity * 100).toFixed(0)}% shared`)}`,
+        )
+      }
+      console.log(
+        c.dim('  narrow one description or reject one — an agent picks badly between them'),
+      )
     }
   })
 
@@ -1934,23 +2381,48 @@ skillsCmd
       if (process.stdout.isTTY) process.stdout.write(`\r  ${c.dim(m.padEnd(60))}`)
     }
 
-    // Same three stages the deep pass runs, in the same order: read the new
-    // sessions for what they established, assemble the ledgers from those
-    // claims, then mine procedures from the clusters. Skipping the first would
-    // leave nothing to cluster on.
+    // The same stages the deep pass runs, in the same order: read the new
+    // sessions for what they established and for what went wrong, assemble the
+    // ledgers from those claims, then mine. Skipping the reads would leave
+    // nothing to cluster on.
     const { extractLessons } = await import('./organize/lessons.ts')
     const lessons = await extractLessons(db, h.layout, h.config, llm, { onProgress: tick })
+    const { extractCorrections, failureModes } = await import('./organize/corrections.ts')
+    const cx = await extractCorrections(db, h.layout, h.config, llm, { onProgress: tick })
     const { buildLedgers } = await import('./organize/ledger.ts')
     const led = await buildLedgers(db, h.layout, h.config)
 
-    const { mineSkills } = await import('./organize/skills.ts')
+    const { mineSkills, listSkills } = await import('./organize/skills.ts')
     const st = await mineSkills(db, h.layout, h.config, llm, { onProgress: tick })
+
+    const { mineGuardrails } = await import('./organize/guardrails.ts')
+    const known = new Set(
+      listSkills(db)
+        .map((r) => r.prevents)
+        .filter(Boolean),
+    )
+    const g = await mineGuardrails(
+      db,
+      h.layout,
+      h.config,
+      llm,
+      failureModes(db)
+        .filter((m) => !known.has(m.mode))
+        .slice(0, 3),
+      { onProgress: tick },
+    )
+
+    const { buildFrontDoor } = await import('./store/frontdoor.ts')
+    await buildFrontDoor(db, h.layout, h.config)
+
     if (process.stdout.isTTY) process.stdout.write(`\r${' '.repeat(64)}\r`)
     if (lessons.lessons) {
       console.log(`${lessons.lessons} lessons from ${lessons.sessionsRead} sessions`)
     }
+    if (cx.logLine) console.log(cx.logLine)
     if (led.logLine) console.log(led.logLine)
     console.log(st.logLine)
+    if (g.stats.logLine) console.log(g.stats.logLine)
   })
 
 // ── web / browse ──────────────────────────────────────────────────
@@ -2207,3 +2679,48 @@ async function main() {
 }
 
 void main()
+
+/**
+ * One skill's bench result.
+ *
+ * The counts are printed together because only their relationship means
+ * anything: `prevents` alone says the skill avoided some failures, which the
+ * baseline also does, and `regressions` alone says nothing about whether the
+ * skill was worth loading.
+ */
+function printVerdict(v: import('./organize/replay.ts').SkillVerdict): void {
+  // An inconclusive run is a look, not a verdict, and must not be painted like
+  // one — the skill-level answer is a threshold over a handful of cases, and
+  // one flip crosses it.
+  const tag = !v.conclusive ? c.yellow('inconclusive') : v.pass ? c.green('pass') : c.red('fail')
+  console.log(`${tag} ${c.bold(v.slug)}  ${c.dim(v.why)}`)
+  if (v.results.length === 0) return
+  console.log(
+    c.dim(
+      `  ${v.prevents} prevented · ${v.regressions} regressed · ` +
+        `${v.inert} inert · ${v.bothFail} both failed` +
+        (v.unstable ? ` · ${v.unstable} unresolved` : ''),
+    ),
+  )
+  if (v.ungrounded.length > 0) {
+    console.log(c.red('  cannot run here:'))
+    for (const u of v.ungrounded)
+      console.log(`    ${c.dim(`${u.mode} — ${u.detail.slice(0, 92)}`)}`)
+  }
+  for (const r of v.results) {
+    const mark =
+      r.verdict === 'prevents'
+        ? c.green('prevents  ')
+        : r.verdict === 'regression'
+          ? c.red('regression')
+          : r.verdict === 'unstable'
+            ? c.yellow('unstable  ')
+            : c.dim(r.verdict.padEnd(10))
+    // A verdict carried 2-of-3 is a different fact from one carried 3-of-3,
+    // and hiding that behind a label is how a noisy instrument reads as a
+    // precise one.
+    const split = r.samples > 1 ? c.dim(` ${r.agreement}/${r.samples}`) : ''
+    console.log(`  ${mark}${split} ${c.dim(r.mode)}`)
+    if (r.reason) console.log(`             ${c.dim(r.reason.slice(0, 96))}`)
+  }
+}

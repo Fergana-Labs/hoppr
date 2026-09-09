@@ -10,6 +10,7 @@ import { Hoppr } from '../src/core/hoppr.ts'
 import { defaultProfile, defaultRawMode, parseSource } from '../src/core/source.ts'
 import {
   countSteps,
+  findOverlaps,
   promotionGate,
   triggerQuality,
   writeResolver,
@@ -238,15 +239,19 @@ describe('skillify promotion gate', () => {
     slug: 'debug-flaky-vitest',
     description:
       'Use when tests pass locally but fail in CI, or a test passes alone and fails in a full run.',
-    body: '## Procedure\n1. Run with --sequence.shuffle\n2. Bisect the ordering\n\n## Pitfalls seen in practice\n- fake timers leak across files',
+    body:
+      '## Procedure\n1. Run with --sequence.shuffle\n2. Bisect the ordering\n\n' +
+      '## Pitfalls seen in practice\n- fake timers leak across files\n\n' +
+      '## Do not use when\n- the failure reproduces every run — that is a bug, not flakiness',
     evidenceCount: 4,
     confidence: 0.8,
     minEvidence: 3,
     minConfidence: 0.6,
     reusable: true,
+    successCount: 3,
   }
 
-  it('passes a skill that recurs, says when to use it, and records pitfalls', () => {
+  it('passes a skill that recurs, says when to use it, and says where it stops', () => {
     const r = promotionGate(good)
     expect(r.pass).toBe(true)
     expect(r.failures).toEqual([])
@@ -267,10 +272,67 @@ describe('skillify promotion gate', () => {
     expect(r.failures.join(' ')).toMatch(/step/)
   })
 
-  it('gates out a skill with no pitfalls — the failures are the payload', () => {
-    const r = promotionGate({ ...good, body: '## Procedure\n1. Do it\n2. Done' })
+  /**
+   * This replaced "gates out a skill with no pitfalls". hoppr required a
+   * pitfalls section on the premise that the failures are the payload;
+   * Demystifying Agent Skills holds the source trajectories fixed and varies
+   * only their success/failure mix, and finds success-only pools far exceed
+   * the no-skill baseline while failure-only pools drop BELOW it. Pitfalls are
+   * still credited — they are just no longer the thing being required.
+   */
+  it('no longer requires a pitfalls section, but still credits one', () => {
+    const noPitfalls = promotionGate({
+      ...good,
+      body: '## Procedure\n1. Do it\n2. Done\n\n## Do not use when\n- it reproduces every time',
+    })
+    expect(noPitfalls.pass).toBe(true)
+    expect(noPitfalls.reasons.join(' ')).not.toMatch(/pitfall/)
+    expect(promotionGate(good).reasons.join(' ')).toMatch(/pitfall/)
+  })
+
+  /**
+   * The requirement moved to where the evidence puts it. A procedure
+   * reconstructed only from transcripts where the work went wrong is a
+   * description of a wrong turn.
+   */
+  it('gates out a draft with no session where the approach worked', () => {
+    const r = promotionGate({ ...good, successCount: 0 })
     expect(r.pass).toBe(false)
-    expect(r.failures.join(' ')).toMatch(/pitfall/)
+    expect(r.failures.join(' ')).toMatch(/actually worked/)
+  })
+
+  it('skips the success check when the caller cannot know', () => {
+    // An audit of a skill on disk has no cluster behind it, and a guardrail is
+    // mined from corrections by definition. Neither should fail a check it
+    // has no evidence for.
+    expect(promotionGate({ ...good, successCount: undefined }).pass).toBe(true)
+  })
+
+  /**
+   * Skills introduce a failure surface raw execution does not have:
+   * `skill_guidance_misapplied_or_ignored` appears in 10.0% of skill-arm cases
+   * against 0.8% raw, and only 2 of 125 functional failures come from an
+   * obviously irrelevant skill — the rest from a relevant one applied where it
+   * did not fit.
+   */
+  it('gates out a skill that never says where it stops applying', () => {
+    const r = promotionGate({
+      ...good,
+      body: '## Procedure\n1. Run it\n2. Bisect\n\n## Pitfalls\n- timers leak',
+    })
+    expect(r.pass).toBe(false)
+    expect(r.failures.join(' ')).toMatch(/boundary|NOT to use/)
+  })
+
+  /**
+   * Skill-Body Context Bloat accounts for 43 of 46 context-overhead
+   * regressions, against 3 for supplementary material read on demand. Every
+   * character here is re-read on each model call the skill is loaded into.
+   */
+  it('gates out a body too long to sit in every call', () => {
+    const r = promotionGate({ ...good, body: `${good.body}\n${'- another note\n'.repeat(400)}` })
+    expect(r.pass).toBe(false)
+    expect(r.failures.join(' ')).toMatch(/move detail behind a link/)
   })
 
   it('gates out something specific to the sessions it came from', () => {
@@ -283,6 +345,59 @@ describe('skillify promotion gate', () => {
 
   it('lets a single session through when the job plainly repeats', () => {
     expect(promotionGate({ ...good, evidenceCount: 1, minEvidence: 1 }).pass).toBe(true)
+  })
+
+  /**
+   * The failure the per-skill gate structurally cannot see. Retrieval
+   * precision collapses as a pool grows, and splitting by composition shows
+   * confusability rather than size is the stressor — top-1 on SIMILAR pools
+   * falls 70.5% → 53.4% against 97.7% → 84.1% on random ones. hoppr mines
+   * automatically from one person's work, so its pool is similar by
+   * construction.
+   */
+  it('reports two skills competing for the same situation', () => {
+    const live = (slug: string, description: string) => ({
+      slug,
+      description,
+      state: 'installed',
+      lifecycle: 'active',
+    })
+    const overlaps = findOverlaps([
+      live(
+        'run-before-reporting',
+        'Use when you are about to report that a change works or is finished.',
+      ),
+      live(
+        'verify-before-done',
+        'Use when about to report a change works, is finished, or is ready.',
+      ),
+      live(
+        'commit-style-here',
+        'Use when writing a commit message or a PR title in this repository.',
+      ),
+    ])
+    expect(overlaps).toHaveLength(1)
+    expect([overlaps[0]!.a, overlaps[0]!.b].sort()).toEqual([
+      'run-before-reporting',
+      'verify-before-done',
+    ])
+  })
+
+  it('does not fire on the boilerplate every good description shares', () => {
+    // "Use when you are about to…" is required by the gate, so counting it
+    // would make every well-formed pair look identical.
+    const live = (slug: string, description: string) => ({
+      slug,
+      description,
+      state: 'installed',
+      lifecycle: 'active',
+    })
+    expect(
+      findOverlaps([
+        live('a', 'Use when you are about to deploy the worker to production.'),
+        live('b', 'Use when you are about to write a migration against the orders table.'),
+      ]),
+    ).toEqual([])
   })
 
   it('recognizes trigger quality and counts steps', () => {
