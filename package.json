@@ -87,5 +87,10 @@
   "homepage": "https://github.com/Fergana-Labs/hoppr#readme",
   "bugs": {
     "url": "https://github.com/Fergana-Labs/hoppr/issues"
+  },
+  "overrides": {
+    "tsup": {
+      "esbuild": "^0.28.1"
+    }
   }
 }
